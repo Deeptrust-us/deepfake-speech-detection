@@ -1,5 +1,7 @@
 venv/
 MLAAD/
 stt_tts_dataset/
-dataset/
+dataset_audios/
 .DS_Store
+
+HM-Conformer/
