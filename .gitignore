@@ -3,3 +3,5 @@ MLAAD/
 stt_tts_dataset/
 dataset_audios/
 .DS_Store
+
+*.pyc
