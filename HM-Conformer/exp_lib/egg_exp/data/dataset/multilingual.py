@@ -1,8 +1,10 @@
 """
 MultilingualDataset - Loads the new organized multilingual deepfake speech detection dataset.
 
-This dataset loads from labels.json which contains metadata about audio files
-organized in the dataset_audios/audio/real/ and dataset_audios/audio/fake/ structure.
+This dataset loads from labels.json which contains metadata about audio files.
+Audio files are expected to be in:
+- Flat structure (preferred): dataset_audios/audio/{filename}.wav
+- Organized structure (fallback): dataset_audios/audio/real/ and dataset_audios/audio/fake/
 """
 
 import os
@@ -17,10 +19,13 @@ class MultilingualDataset:
     """
     Dataset loader for the multilingual deepfake speech detection dataset.
     
-    This dataset loads audio files from the organized structure:
-    - dataset_audios/audio/real/ contains real audio files
-    - dataset_audios/audio/fake/ contains fake audio files
+    This dataset loads audio files from:
+    - Preferred: Flat structure at dataset_audios/audio/{filename}.wav
+    - Fallback: Organized structure at dataset_audios/audio/real/ and dataset_audios/audio/fake/
     - labels.json contains metadata for all audio files
+    
+    Note: The dataset will NOT use original_path from the JSON file to avoid
+    accessing files from their original location.
     """
     
     def __init__(
@@ -81,25 +86,30 @@ class MultilingualDataset:
         
         for entry in self.labels:
             # Get audio file path
-            # Priority: check if file exists in audio/real or audio/fake
-            # Otherwise, use original_path
+            # Priority order:
+            # 1. Flat structure: audio/{filename}.wav (preferred)
+            # 2. Organized structure: audio/real/{filename}.wav or audio/fake/{filename}.wav
+            # 3. Skip if neither exists (don't use original_path)
             label_str = entry.get('label', 'real')
             filename = entry.get('filename', '')
             
-            # Try to find file in organized structure first
-            if label_str == 'real':
-                audio_path = self.dataset_root / 'audio' / 'real' / filename
-            else:
-                audio_path = self.dataset_root / 'audio' / 'fake' / filename
+            if not filename:
+                # Skip entries without filename
+                continue
             
-            # Fallback to original_path if organized file doesn't exist
+            # Try flat structure first: audio/{filename}.wav
+            audio_path = self.dataset_root / 'audio' / filename
+            
+            # If flat structure doesn't exist, try organized structure
             if not audio_path.exists():
-                original_path = entry.get('original_path', '')
-                if original_path:
-                    audio_path = Path(original_path)
+                if label_str == 'real':
+                    audio_path = self.dataset_root / 'audio' / 'real' / filename
                 else:
-                    # Skip if no valid path found
-                    continue
+                    audio_path = self.dataset_root / 'audio' / 'fake' / filename
+            
+            # Skip if file doesn't exist (don't fallback to original_path)
+            if not audio_path.exists():
+                continue
             
             # Convert label: 'real' -> 0, 'fake' -> 1
             label = 0 if label_str == 'real' else 1
