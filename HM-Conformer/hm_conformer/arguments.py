@@ -16,7 +16,7 @@ def get_args():
         'description'   : '',
 
         # log
-        'path_log'      : '/results',
+        'path_log'      : '/content/deepfake-speech-detection/HM-Conformer/results',
         'neptune_user'  : '',
         'neptune_token' : '',
         'wandb_group'   : '',
@@ -43,8 +43,8 @@ def get_args():
         'test_split'    : 0.1,
         
         # Common augmentation paths
-        'path_musan'    : '/data/musan',
-        'path_rir'      : '/data/RIRS_NOISES/simulated_rirs',
+        'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
+        'path_rir'      : '/content/deepfake-speech-detection/HM-Conformer/data/RIRS_NOISES/simulated_rirs',
 
         # others
         'num_workers': 4,
@@ -54,7 +54,7 @@ def get_args():
     experiment_args = {
         'TEST'              : False,  # Set to False for training, True for inference only
         # experiment
-        'epoch'             : 200,
+        'epoch'             : 100,
         'batch_size'        : 240,
         'rand_seed'         : 1,
         
