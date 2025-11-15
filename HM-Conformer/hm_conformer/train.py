@@ -80,10 +80,62 @@ def validate(framework, loader):
     _synchronize()
     return avg_loss, avg_loss_list
 
-def test(framework, loader):
-    # enrollment
-    eer = df_test(framework, loader, run_on_ddp=True, get_scores=False)
-    return eer
+def test(framework, loader, get_full_metrics=False):
+    """
+    Test the framework on a dataset.
+    
+    Args:
+        framework: The model framework
+        loader: DataLoader for test data
+        get_full_metrics: If True, returns dict with EER and other metrics
+    
+    Returns:
+        If get_full_metrics=False: float (EER)
+        If get_full_metrics=True: dict with metrics
+    """
+    # Get EER and scores
+    eer, scores, labels = df_test(framework, loader, run_on_ddp=True, get_scores=True)
+    
+    if get_full_metrics:
+        # Compute additional metrics
+        import numpy as np
+        from sklearn.metrics import (
+            accuracy_score, f1_score, precision_score, recall_score,
+            roc_auc_score, confusion_matrix, classification_report, roc_curve
+        )
+        
+        scores = np.array(scores)
+        labels = np.array(labels, dtype=int)
+        
+        # Find threshold at EER
+        fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
+        eer_idx = np.nanargmin(np.abs(fpr - (1 - tpr)))
+        threshold = thresholds[eer_idx]
+        
+        # Binarize predictions
+        predictions = (scores >= threshold).astype(int)
+        
+        # Compute metrics
+        metrics = {
+            'eer': eer,
+            'accuracy': accuracy_score(labels, predictions),
+            'f1_score': f1_score(labels, predictions),
+            'precision': precision_score(labels, predictions),
+            'recall': recall_score(labels, predictions),
+            'threshold': threshold,
+            'confusion_matrix': confusion_matrix(labels, predictions),
+            'classification_report': classification_report(labels, predictions, target_names=['Real', 'Fake'])
+        }
+        
+        # ROC AUC (if possible)
+        try:
+            metrics['roc_auc'] = roc_auc_score(labels, scores)
+        except ValueError:
+            metrics['roc_auc'] = None
+        
+        return metrics
+    else:
+        return eer
 
 def _synchronize():
     torch.cuda.empty_cache()

@@ -198,10 +198,40 @@ def run(process_id, args, experiment_args):
     # ===================================================
     if args['TEST']:
         framework.load_model(args)
-        eer = train.test(framework, test_loader_DF)
+        
+        # Get full metrics
+        metrics = train.test(framework, test_loader_DF, get_full_metrics=True)
+        
+        # Print results
+        print('\n' + '='*60)
+        print('Test Results')
+        print('='*60)
+        print(f'EER:           {metrics["eer"]:.4f}%')
+        print(f'Accuracy:      {metrics["accuracy"]:.4f}')
+        print(f'F1 Score:      {metrics["f1_score"]:.4f}')
+        print(f'Precision:     {metrics["precision"]:.4f}')
+        print(f'Recall:        {metrics["recall"]:.4f}')
+        if metrics.get('roc_auc') is not None:
+            print(f'ROC AUC:       {metrics["roc_auc"]:.4f}')
+        print(f'Threshold:     {metrics["threshold"]:.4f}')
+        print(f'\nConfusion Matrix:')
+        print(metrics['confusion_matrix'])
+        print(f'\nClassification Report:')
+        print(metrics['classification_report'])
+        print('='*60)
+        
+        # Log metrics
         if logger is not None:
-            logger.log_metric('DF_EER', eer, 0)
-            print('DF: ',eer)
+            logger.log_metric('DF_EER', metrics['eer'], 0)
+            logger.log_metric('DF_Accuracy', metrics['accuracy'], 0)
+            logger.log_metric('DF_F1', metrics['f1_score'], 0)
+            logger.log_metric('DF_Precision', metrics['precision'], 0)
+            logger.log_metric('DF_Recall', metrics['recall'], 0)
+            if metrics.get('roc_auc') is not None:
+                logger.log_metric('DF_ROC_AUC', metrics['roc_auc'], 0)
+        
+        # Also print the old format for compatibility
+        print('\nDF: ', metrics['eer'])
 
     # ===================================================
     #                    Train
