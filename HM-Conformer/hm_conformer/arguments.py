@@ -11,7 +11,7 @@ def get_args():
     system_args = {
         # expeirment info
         'project'       : 'Multilingual Testing',
-        'name'          : 'HM-Conformer DE',
+        'name'          : 'HM-Conformer IT',
         'tags'          : [],
         'description'   : '',
 
@@ -47,7 +47,7 @@ def get_args():
         
         # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
         # Set to None to use all languages
-        'selected_language': 'de',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+        'selected_language': 'it',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
         
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
