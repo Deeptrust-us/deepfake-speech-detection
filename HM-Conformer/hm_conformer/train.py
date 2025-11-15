@@ -4,7 +4,6 @@ import torch
 import torch.distributed as dist
 
 from egg_exp.util import df_test
-import egg_exp.util as util
 
 def train(epoch, framework, optimizer, loader, logger):
     framework.train()
@@ -103,9 +102,20 @@ def test(framework, loader, get_full_metrics=False):
             accuracy_score, f1_score, precision_score, recall_score,
             roc_auc_score, confusion_matrix, classification_report, roc_curve
         )
+        from egg_exp.util.model_test import _flatten_labels
         
-        scores = np.array(scores)
-        labels = np.array(labels, dtype=int)
+        # Flatten labels and scores (handles DDP nested structure)
+        labels_flat = _flatten_labels(labels)
+        scores_flat = _flatten_labels(scores)
+        
+        scores = np.array(scores_flat, dtype=np.float64)
+        labels = np.array(labels_flat, dtype=np.int32)
+        
+        # Ensure binary format (1D array)
+        if labels.ndim > 1:
+            labels = labels.flatten()
+        if scores.ndim > 1:
+            scores = scores.flatten()
         
         # Find threshold at EER
         fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
