@@ -45,6 +45,10 @@ def get_args():
         'val_split'     : 0,
         'test_split'    : 1,
         
+        # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
+        # Set to None to use all languages
+        'selected_language': 'en',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+        
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
         'path_rir'      : '/content/deepfake-speech-detection/HM-Conformer/data/RIRS_NOISES/simulated_rirs',

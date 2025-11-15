@@ -36,6 +36,7 @@ class MultilingualDataset:
         val_split: float = 0.1,
         test_split: float = 0.1,
         random_seed: int = 42,
+        selected_language: Optional[str] = None,
         print_info: bool = False
     ):
         """
@@ -48,6 +49,7 @@ class MultilingualDataset:
             val_split: Fraction of data for validation (default: 0.1)
             test_split: Fraction of data for testing (default: 0.1)
             random_seed: Random seed for splitting (default: 42)
+            selected_language: Filter by language code (e.g., 'en', 'it'). If None, uses all languages (default: None)
             print_info: Whether to print dataset information (default: False)
         """
         import random
@@ -63,7 +65,17 @@ class MultilingualDataset:
             raise FileNotFoundError(f"Labels file not found: {labels_path}")
         
         with open(labels_path, 'r', encoding='utf-8') as f:
-            self.labels = json.load(f)
+            all_labels = json.load(f)
+        
+        # Filter by language if selected_language is specified
+        if selected_language is not None:
+            self.labels = [entry for entry in all_labels if entry.get('language') == selected_language]
+            if print_info:
+                print(f"Filtered dataset by language: '{selected_language}'")
+                print(f"Total entries before filtering: {len(all_labels)}")
+                print(f"Total entries after filtering: {len(self.labels)}")
+        else:
+            self.labels = all_labels
         
         # Determine dataset root
         if dataset_root is None:
@@ -163,9 +175,11 @@ class MultilingualDataset:
             test_real = sum(1 for item in self.test_set if item.label == 0)
             test_fake = sum(1 for item in self.test_set if item.label == 1)
             
+            language_info = f"Language: {selected_language}" if selected_language else "Language: All languages"
             info = (
                 f'====================\n'
                 + f'  MultilingualDataset\n'
+                + f'{language_info}\n'
                 + f'====================\n'
                 + f'TRAIN: Real={train_real:,}, Fake={train_fake:,}, Total={len(self.train_set):,}\n'
                 + f'VAL:   Real={val_real:,}, Fake={val_fake:,}, Total={len(self.val_set):,}\n'

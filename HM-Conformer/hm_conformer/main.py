@@ -90,6 +90,7 @@ def run(process_id, args, experiment_args):
         val_split=args.get('val_split', 0.1),
         test_split=args.get('test_split', 0.1),
         random_seed=args['rand_seed'],
+        selected_language=args.get('selected_language', None),
         print_info=flag_parent
     )
     
