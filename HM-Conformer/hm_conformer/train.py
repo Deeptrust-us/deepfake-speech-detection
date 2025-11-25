@@ -8,9 +8,15 @@ from egg_exp.util import df_test
 def train(epoch, framework, optimizer, loader, logger):
     framework.train()
     
+    # Counters for periodic logging
     count = 0
     loss_sum = 0
     loss_sum_list = [0]*5
+
+    # Counters for epoch-level averages
+    epoch_count = 0
+    epoch_loss_sum = 0.0
+    epoch_loss_sum_list = [0.0]*5
 
     with tqdm(total=len(loader), ncols=90) as pbar:
         for x, label in loader:
@@ -47,7 +53,26 @@ def train(epoch, framework, optimizer, loader, logger):
                 pbar.set_description(desc)
                 pbar.update(1)
 
+            # Epoch-level accumulation (irrespective of logging frequency)
+            epoch_count += 1
+            epoch_loss_sum += loss.item()
+            for i in range(5):
+                epoch_loss_sum_list[i] += loss_embs[i].item()
+
     _synchronize()
+
+    avg_loss = epoch_loss_sum / epoch_count if epoch_count > 0 else 0
+    avg_loss_list = [
+        epoch_loss_sum_list[i] / epoch_count if epoch_count > 0 else 0 for i in range(5)
+    ]
+
+    # Log per-epoch averages so they align with validation metrics
+    if logger is not None:
+        logger.log_metric('TrainLoss', avg_loss, epoch)
+        for i in range(5):
+            logger.log_metric(f'TrainLoss{i}', avg_loss_list[i], epoch)
+
+    return avg_loss, avg_loss_list
 
 def validate(framework, loader):
     """Compute validation loss without backpropagation."""
