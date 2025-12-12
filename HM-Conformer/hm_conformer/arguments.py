@@ -10,7 +10,7 @@ def get_args():
     """
     system_args = {
         # expeirment info
-        'project'       : 'Multilingual-FT',
+        'project'       : 'Multilingual-Debug',
         'name'          : 'HM-Conformer EN',
         'tags'          : [],
         'description'   : '',
@@ -59,9 +59,9 @@ def get_args():
         'TEST'              : False,  # Set to True for testing/inference only
         # experiment
         #'epoch'             : 200,
-        'epoch'             : 60,
+        'epoch'             : 10,
         #'batch_size'        : 240,  # Small batch size for Colab GPU memory
-        'batch_size'        : 240,  # Small batch size for Colab GPU memory
+        'batch_size'        : 120,  # Small batch size for Colab GPU memory
         'rand_seed'         : 1,
         
         # frontend model
