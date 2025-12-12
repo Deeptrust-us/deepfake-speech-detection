@@ -10,13 +10,32 @@ class LocalLogger(Logger):
     """Save experiment logs to local storage.
     """
     def __init__(self, path, description=None, scripts=None):
+        # If the target directory already exists, NEVER delete it.
+        # Instead, create a new unique run directory to avoid wiping checkpoints/results
+        # from previous runs.
+        #
+        # Previous behavior:
+        #   if os.path.exists(path): shutil.rmtree(path)
+        #
+        # This was dangerous when users re-ran an experiment pointing to an existing
+        # results directory (common in notebooks).
+        run_path = path
+        if os.path.exists(run_path):
+            import datetime
+            ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            # Create a unique suffix if multiple runs start within the same second.
+            candidate = f"{path}-run-{ts}"
+            idx = 1
+            while os.path.exists(candidate):
+                idx += 1
+                candidate = f"{path}-run-{ts}-{idx}"
+            run_path = candidate
+
         # set path
-        self.path = path
-        
+        self.path = run_path
+
         # make directory
-        if os.path.exists(path):
-            shutil.rmtree(path)
-        os.makedirs(path)
+        os.makedirs(self.path, exist_ok=True)
 
         # save description
         if description is not None:
@@ -24,9 +43,9 @@ class LocalLogger(Logger):
 
         # script backup
         if scripts is not None:
-            shutil.copytree(scripts, f'{path}/scripts')
+            shutil.copytree(scripts, f'{self.path}/scripts')
             
-            for root, dirs, _ in os.walk(f'{path}/scripts'):
+            for root, dirs, _ in os.walk(f'{self.path}/scripts'):
                 for dir in dirs:
                     if dir == '__pycache__':
                         shutil.rmtree(f'{root}/{dir}')

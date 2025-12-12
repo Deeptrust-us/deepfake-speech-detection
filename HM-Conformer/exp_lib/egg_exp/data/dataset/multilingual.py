@@ -36,6 +36,7 @@ class MultilingualDataset:
         val_split: float = 0.1,
         test_split: float = 0.1,
         random_seed: int = 42,
+        selected_language: Optional[str] = None,
         print_info: bool = False
     ):
         """
@@ -48,10 +49,31 @@ class MultilingualDataset:
             val_split: Fraction of data for validation (default: 0.1)
             test_split: Fraction of data for testing (default: 0.1)
             random_seed: Random seed for splitting (default: 42)
+            selected_language: Filter by language code (e.g., 'en', 'it'). If None, uses all languages (default: None)
             print_info: Whether to print dataset information (default: False)
         """
         import random
         import numpy as np
+        from math import isclose
+
+        # ---------------------------
+        # Sanity checks (fail fast)
+        # ---------------------------
+        for name, v in (("train_split", train_split), ("val_split", val_split), ("test_split", test_split)):
+            if not isinstance(v, (int, float)):
+                raise TypeError(f"{name} must be a float, got {type(v).__name__}")
+            if v < 0.0:
+                raise ValueError(f"{name} must be >= 0.0, got {v}")
+            if v > 1.0:
+                raise ValueError(f"{name} must be <= 1.0, got {v}")
+
+        split_sum = float(train_split) + float(val_split) + float(test_split)
+        # Use a slightly forgiving tolerance for float config values.
+        if not isclose(split_sum, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ValueError(
+                "train/val/test splits must sum to 1.0, "
+                f"got train_split={train_split}, val_split={val_split}, test_split={test_split} (sum={split_sum})"
+            )
         
         # Set random seed for reproducibility
         random.seed(random_seed)
@@ -63,7 +85,22 @@ class MultilingualDataset:
             raise FileNotFoundError(f"Labels file not found: {labels_path}")
         
         with open(labels_path, 'r', encoding='utf-8') as f:
-            self.labels = json.load(f)
+            all_labels = json.load(f)
+        
+        # Filter by language if selected_language is specified
+        if selected_language is not None:
+            self.labels = [entry for entry in all_labels if entry.get('language') == selected_language]
+            if len(self.labels) == 0:
+                raise ValueError(
+                    f"No entries found in labels.json for selected_language={selected_language!r}. "
+                    "Either set selected_language=None or verify your labels.json language codes."
+                )
+            if print_info:
+                print(f"Filtered dataset by language: '{selected_language}'")
+                print(f"Total entries before filtering: {len(all_labels)}")
+                print(f"Total entries after filtering: {len(self.labels)}")
+        else:
+            self.labels = all_labels
         
         # Determine dataset root
         if dataset_root is None:
@@ -81,8 +118,6 @@ class MultilingualDataset:
         
         # Convert labels to DF_Item objects
         items = []
-        train_num_pos = 0  # fake (label=1)
-        train_num_neg = 0  # real (label=0)
         
         for entry in self.labels:
             # Get audio file path
@@ -119,12 +154,6 @@ class MultilingualDataset:
             if label == 0:
                 attack_type = 'real'  # For real samples, use 'real' as attack_type
             
-            # Count for class weights
-            if label == 0:
-                train_num_neg += 1
-            else:
-                train_num_pos += 1
-            
             # Create DF_Item
             item = DF_Item(
                 path=str(audio_path.resolve()),
@@ -134,6 +163,14 @@ class MultilingualDataset:
             )
             items.append(item)
         
+        if len(items) == 0:
+            lang_msg = f" for selected_language={selected_language!r}" if selected_language is not None else ""
+            raise ValueError(
+                f"After resolving audio paths, no usable audio files were found{lang_msg}. "
+                "Check that `dataset_root` is correct and audio files exist under "
+                "`<dataset_root>/audio/` (flat) or `<dataset_root>/audio/{real,fake}/` (organized)."
+            )
+
         # Shuffle items for train/val/test split
         random.shuffle(items)
         
@@ -145,8 +182,33 @@ class MultilingualDataset:
         self.train_set = items[:train_end]
         self.val_set = items[train_end:val_end]
         self.test_set = items[val_end:]
+
+        # Explicit split non-emptiness checks.
+        # NOTE: Because we use integer truncation, small totals can yield empty val/test even if split > 0.
+        # We prefer failing fast with a clear message instead of silently training/evaluating on empty sets.
+        # Allow empty splits if and only if the corresponding split fraction is 0.
+        # This enables "test-only" runs such as train_split=0, val_split=0, test_split=1.
+        if train_split > 0.0 and len(self.train_set) == 0:
+            raise ValueError(
+                f"Train split is empty (total_items={total}, train_split={train_split}). "
+                "Increase data size, adjust splits, or set selected_language=None."
+            )
+        if val_split > 0.0 and len(self.val_set) == 0:
+            raise ValueError(
+                f"Validation split is empty (total_items={total}, val_split={val_split}). "
+                "This often happens when the selected language is sparse. "
+                "Increase data size, adjust splits, or set selected_language=None."
+            )
+        if test_split > 0.0 and len(self.test_set) == 0:
+            raise ValueError(
+                f"Test split is empty (total_items={total}, test_split={test_split}). "
+                "This often happens when the selected language is sparse. "
+                "Increase data size, adjust splits, or set selected_language=None."
+            )
         
         # Calculate class weights for balancing
+        train_num_neg = sum(1 for item in self.train_set if item.label == 0)
+        train_num_pos = sum(1 for item in self.train_set if item.label == 1)
         if train_num_neg > 0 and train_num_pos > 0:
             total_count = train_num_neg + train_num_pos
             self.class_weight.append(total_count / train_num_neg)  # weight for real (label=0)
@@ -163,9 +225,11 @@ class MultilingualDataset:
             test_real = sum(1 for item in self.test_set if item.label == 0)
             test_fake = sum(1 for item in self.test_set if item.label == 1)
             
+            language_info = f"Language: {selected_language}" if selected_language else "Language: All languages"
             info = (
                 f'====================\n'
                 + f'  MultilingualDataset\n'
+                + f'{language_info}\n'
                 + f'====================\n'
                 + f'TRAIN: Real={train_real:,}, Fake={train_fake:,}, Total={len(self.train_set):,}\n'
                 + f'VAL:   Real={val_real:,}, Fake={val_fake:,}, Total={len(self.val_set):,}\n'

@@ -7,6 +7,9 @@ class Framework(metaclass=ABCMeta):
     def __init__(self):
         self.trainable_modules = {}
         self.device = 'cpu'
+        # Mirror torch.nn.Module semantics so framework implementations can use
+        # `self.training` to gate behaviors (e.g., augmentation only in training).
+        self.training: bool = True
     
     @abstractmethod
     def __call__(self, x: torch.Tensor, *labels: Optional[torch.Tensor]):
@@ -42,14 +45,17 @@ class Framework(metaclass=ABCMeta):
             self.trainable_modules[key].load_state_dict(params)
 
     def eval(self):
+        self.training = False
         for model in self.trainable_modules.values():
             model.eval()
             
-    def train(self):
+    def train(self, mode: bool = True):
+        self.training = bool(mode)
         for model in self.trainable_modules.values():
-            model.train()
+            model.train(mode)
         
     def freeze(self):
+        self.training = False
         for model in self.trainable_modules.values():
             for param in model.parameters():
                 param.requires_grad=False

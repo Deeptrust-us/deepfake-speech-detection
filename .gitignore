@@ -5,3 +5,7 @@ dataset_audios/
 .DS_Store
 
 *.pyc
+
+raw_data.zip
+
+HM-Conformer/results/

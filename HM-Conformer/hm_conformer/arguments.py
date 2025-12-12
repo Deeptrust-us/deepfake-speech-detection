@@ -10,8 +10,8 @@ def get_args():
     """
     system_args = {
         # expeirment info
-        'project'       : 'Multilingual Test 15k',
-        'name'          : 'HM-Conformer',
+        'project'       : 'Multilingual-Debug',
+        'name'          : 'HM-Conformer EN',
         'tags'          : [],
         'description'   : '',
 
@@ -42,6 +42,10 @@ def get_args():
         'val_split'     : 0.1,
         'test_split'    : 0.1,
         
+        # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
+        # Set to None to use all languages
+        'selected_language': 'en',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+        
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
         'path_rir'      : '/content/deepfake-speech-detection/HM-Conformer/data/RIRS_NOISES/simulated_rirs',
@@ -52,10 +56,16 @@ def get_args():
     }
 
     experiment_args = {
-        'TEST'              : False,  # Set to False for training, True for inference only
+        'TEST'              : False,  # Set to True for testing/inference only
+        # Which checkpoint epoch to load when TEST=True.
+        # - Set to an int (e.g., 60) to force that epoch.
+        # - Set to None to auto-pick the latest available epoch in path_params.
+        'load_epoch'        : 60,
         # experiment
-        'epoch'             : 100,
-        'batch_size'        : 240,
+        #'epoch'             : 200,
+        'epoch'             : 10,
+        #'batch_size'        : 240,  # Small batch size for Colab GPU memory
+        'batch_size'        : 120,  # Small batch size for Colab GPU memory
         'rand_seed'         : 1,
         
         # frontend model
@@ -106,7 +116,8 @@ def get_args():
             'RIR': {'path': system_args['path_rir']}  
         },
         # 3. when processing WaveformAugmentation which is in Framework
-        'DA_wav_aug_list'   : ['ACN'], 
+        #'DA_wav_aug_list'   : ['ACN'], 
+        'DA_wav_aug_list'   : ['ACN'],
             # 'ACN': add_colored_noise, 'GAN': gain, 'HPF': high pass filter, 'LPF': low pass filter
             # if use 'HPF' or 'LPF' training speed will be slow
         'DA_wav_aug_params' :  {
@@ -134,5 +145,22 @@ def get_args():
         args[k] = v
     args['path_scripts'] = os.path.dirname(os.path.realpath(__file__))
     args['path_params'] = args['path_scripts'] + '/params'
+
+    # If testing/inference only, evaluate on the full (optionally language-filtered) dataset.
+    # This prevents empty train/val splits and matches the common "test-only" expectation.
+    if args.get('TEST', False):
+        args['train_split'] = 0.0
+        args['val_split'] = 0.0
+        args['test_split'] = 1.0
+
+    # Basic config sanity check: train/val/test splits must sum to 1.0
+    split_sum = float(args.get('train_split', 0.0)) + float(args.get('val_split', 0.0)) + float(args.get('test_split', 0.0))
+    if abs(split_sum - 1.0) > 1e-6:
+        raise ValueError(
+            "train/val/test splits must sum to 1.0, got "
+            f"train_split={args.get('train_split')}, "
+            f"val_split={args.get('val_split')}, "
+            f"test_split={args.get('test_split')} (sum={split_sum})"
+        )
 
     return args, system_args, experiment_args
