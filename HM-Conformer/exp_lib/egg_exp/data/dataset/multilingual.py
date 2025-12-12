@@ -54,6 +54,26 @@ class MultilingualDataset:
         """
         import random
         import numpy as np
+        from math import isclose
+
+        # ---------------------------
+        # Sanity checks (fail fast)
+        # ---------------------------
+        for name, v in (("train_split", train_split), ("val_split", val_split), ("test_split", test_split)):
+            if not isinstance(v, (int, float)):
+                raise TypeError(f"{name} must be a float, got {type(v).__name__}")
+            if v < 0.0:
+                raise ValueError(f"{name} must be >= 0.0, got {v}")
+            if v > 1.0:
+                raise ValueError(f"{name} must be <= 1.0, got {v}")
+
+        split_sum = float(train_split) + float(val_split) + float(test_split)
+        # Use a slightly forgiving tolerance for float config values.
+        if not isclose(split_sum, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ValueError(
+                "train/val/test splits must sum to 1.0, "
+                f"got train_split={train_split}, val_split={val_split}, test_split={test_split} (sum={split_sum})"
+            )
         
         # Set random seed for reproducibility
         random.seed(random_seed)
@@ -70,6 +90,11 @@ class MultilingualDataset:
         # Filter by language if selected_language is specified
         if selected_language is not None:
             self.labels = [entry for entry in all_labels if entry.get('language') == selected_language]
+            if len(self.labels) == 0:
+                raise ValueError(
+                    f"No entries found in labels.json for selected_language={selected_language!r}. "
+                    "Either set selected_language=None or verify your labels.json language codes."
+                )
             if print_info:
                 print(f"Filtered dataset by language: '{selected_language}'")
                 print(f"Total entries before filtering: {len(all_labels)}")
@@ -146,6 +171,14 @@ class MultilingualDataset:
             )
             items.append(item)
         
+        if len(items) == 0:
+            lang_msg = f" for selected_language={selected_language!r}" if selected_language is not None else ""
+            raise ValueError(
+                f"After resolving audio paths, no usable audio files were found{lang_msg}. "
+                "Check that `dataset_root` is correct and audio files exist under "
+                "`<dataset_root>/audio/` (flat) or `<dataset_root>/audio/{real,fake}/` (organized)."
+            )
+
         # Shuffle items for train/val/test split
         random.shuffle(items)
         
@@ -157,6 +190,27 @@ class MultilingualDataset:
         self.train_set = items[:train_end]
         self.val_set = items[train_end:val_end]
         self.test_set = items[val_end:]
+
+        # Explicit split non-emptiness checks.
+        # NOTE: Because we use integer truncation, small totals can yield empty val/test even if split > 0.
+        # We prefer failing fast with a clear message instead of silently training/evaluating on empty sets.
+        if len(self.train_set) == 0:
+            raise ValueError(
+                f"Train split is empty (total_items={total}, train_split={train_split}). "
+                "Increase data size, adjust splits, or set selected_language=None."
+            )
+        if val_split > 0.0 and len(self.val_set) == 0:
+            raise ValueError(
+                f"Validation split is empty (total_items={total}, val_split={val_split}). "
+                "This often happens when the selected language is sparse. "
+                "Increase data size, adjust splits, or set selected_language=None."
+            )
+        if test_split > 0.0 and len(self.test_set) == 0:
+            raise ValueError(
+                f"Test split is empty (total_items={total}, test_split={test_split}). "
+                "This often happens when the selected language is sparse. "
+                "Increase data size, adjust splits, or set selected_language=None."
+            )
         
         # Calculate class weights for balancing
         if train_num_neg > 0 and train_num_pos > 0:
