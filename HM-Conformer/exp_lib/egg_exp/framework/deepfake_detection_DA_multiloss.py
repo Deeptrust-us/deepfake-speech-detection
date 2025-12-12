@@ -17,7 +17,9 @@ class DeepfakeDetectionFramework_DA_multiloss(Framework):
     def __call__(self, x, label=None, all_loss=False):
         # pre_processing
         with torch.set_grad_enabled(False):
-            if self.augmentation is not None:
+            # Apply augmentation ONLY during training.
+            # Validation/Test should run on clean (un-augmented) inputs.
+            if self.training and self.augmentation is not None:
                 x = self.augmentation(x)
         x = self.preprocessing(x)
 

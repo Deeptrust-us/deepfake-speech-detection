@@ -5,6 +5,42 @@ import torch.distributed as dist
 
 from egg_exp.util import df_test
 
+def _ddp_allreduce_sum(t: torch.Tensor) -> torch.Tensor:
+    """All-reduce SUM if torch.distributed is initialized; otherwise return as-is."""
+    if dist.is_available() and dist.is_initialized():
+        dist.all_reduce(t, op=dist.ReduceOp.SUM)
+    return t
+
+def _ddp_reduce_losses(
+    loss_sum: float,
+    loss_sum_list: list,
+    count: int,
+    device: torch.device,
+):
+    """
+    Reduce (sum) loss totals and count across DDP ranks, then return global averages.
+    Averages are per-batch, consistent with local accumulation.
+    """
+    # Pack totals into one tensor: [total_loss_sum, loss0_sum..loss4_sum, count]
+    packed = torch.tensor(
+        [float(loss_sum), *[float(x) for x in loss_sum_list], float(count)],
+        device=device,
+        dtype=torch.float32,
+    )
+    packed = _ddp_allreduce_sum(packed)
+
+    total_sum = float(packed[0].item())
+    per_branch_sum = [float(packed[i].item()) for i in range(1, 6)]
+    # Count is summed as float32; round to avoid rare truncation (e.g. 127.99999).
+    total_count = int(torch.round(packed[6]).item())
+
+    if total_count <= 0:
+        return 0.0, [0.0] * 5
+
+    avg_total = total_sum / total_count
+    avg_list = [s / total_count for s in per_branch_sum]
+    return avg_total, avg_list
+
 def train(epoch, framework, optimizer, loader, logger):
     framework.train()
     
@@ -61,21 +97,28 @@ def train(epoch, framework, optimizer, loader, logger):
 
     _synchronize()
 
-    avg_loss = epoch_loss_sum / epoch_count if epoch_count > 0 else 0
-    avg_loss_list = [
-        epoch_loss_sum_list[i] / epoch_count if epoch_count > 0 else 0 for i in range(5)
-    ]
+    avg_loss, avg_loss_list = _ddp_reduce_losses(
+        loss_sum=epoch_loss_sum,
+        loss_sum_list=epoch_loss_sum_list,
+        count=epoch_count,
+        device=framework.device,
+    )
 
     # Log per-epoch averages so they align with validation metrics
     if logger is not None:
+        # New metric names (requested)
+        logger.log_metric('Train_Loss_Epoch', avg_loss, epoch)
+        for i in range(5):
+            logger.log_metric(f'Train_Loss{i}_Epoch', avg_loss_list[i], epoch)
+        # Backward-compatible metric names (keep existing plots working)
         logger.log_metric('TrainLoss', avg_loss, epoch)
         for i in range(5):
             logger.log_metric(f'TrainLoss{i}', avg_loss_list[i], epoch)
 
     return avg_loss, avg_loss_list
 
-def validate(framework, loader):
-    """Compute validation loss without backpropagation."""
+def validate(epoch, framework, loader, logger=None):
+    """Compute and log validation loss without backpropagation (DDP-safe)."""
     framework.eval()
     
     count = 0
@@ -97,11 +140,25 @@ def validate(framework, loader):
             for i in range(5):
                 loss_sum_list[i] += loss_embs[i].item()
     
-    # Compute average losses
-    avg_loss = loss_sum / count if count > 0 else 0
-    avg_loss_list = [loss_sum_list[i] / count if count > 0 else 0 for i in range(5)]
-    
     _synchronize()
+
+    avg_loss, avg_loss_list = _ddp_reduce_losses(
+        loss_sum=loss_sum,
+        loss_sum_list=loss_sum_list,
+        count=count,
+        device=framework.device,
+    )
+
+    if logger is not None:
+        # New metric names (requested)
+        logger.log_metric('Val_Loss', avg_loss, epoch)
+        for i in range(5):
+            logger.log_metric(f'Val_Loss{i}', avg_loss_list[i], epoch)
+        # Backward-compatible metric names (keep existing plots working)
+        logger.log_metric('ValLoss', avg_loss, epoch)
+        for i in range(5):
+            logger.log_metric(f'ValLoss{i}', avg_loss_list[i], epoch)
+
     return avg_loss, avg_loss_list
 
 def test(framework, loader, get_full_metrics=False):
@@ -174,4 +231,5 @@ def test(framework, loader, get_full_metrics=False):
 
 def _synchronize():
     torch.cuda.empty_cache()
-    dist.barrier()
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()

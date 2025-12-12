@@ -258,11 +258,7 @@ def run(process_id, args, experiment_args):
             train.train(epoch, framework, optimizer, train_loader, logger)
 
             # validate (compute validation loss)
-            val_loss, val_loss_list = train.validate(framework, val_loader)
-            if logger is not None:
-                logger.log_metric('ValLoss', val_loss, epoch)
-                for i in range(5):
-                    logger.log_metric(f'ValLoss{i}', val_loss_list[i], epoch)
+            train.validate(epoch, framework, val_loader, logger)
 
             # test_DF
             if epoch % 5 == 0:
