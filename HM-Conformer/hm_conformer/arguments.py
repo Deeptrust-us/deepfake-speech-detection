@@ -10,8 +10,8 @@ def get_args():
     """
     system_args = {
         # expeirment info
-        'project'       : 'Multilingual Testing ES',
-        'name'          : 'HM-Conformer_es',
+        'project'       : 'Multilingual-FT',
+        'name'          : 'HM-Conformer EN',
         'tags'          : [],
         'description'   : '',
 
@@ -38,13 +38,13 @@ def get_args():
         'path_train'    : '/content/deepfake-speech-detection/HM-Conformer/dataset',
         'labels_path'   : '/content/deepfake-speech-detection/HM-Conformer/dataset/labels.json',
         'dataset_root'  : '/content/deepfake-speech-detection/HM-Conformer/dataset',
-        'train_split'   : 0,
-        'val_split'     : 0,
-        'test_split'    : 1,
+        'train_split'   : 0.8,
+        'val_split'     : 0.1,
+        'test_split'    : 0.1,
         
         # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
         # Set to None to use all languages
-        'selected_language': 'es',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+        'selected_language': 'en',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
         
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
@@ -56,10 +56,12 @@ def get_args():
     }
 
     experiment_args = {
-        'TEST'              : True,  # Set to True for testing/inference only
+        'TEST'              : False,  # Set to True for testing/inference only
         # experiment
-        'epoch'             : 200,
-        'batch_size'        : 32,  # Small batch size for Colab GPU memory
+        #'epoch'             : 200,
+        'epoch'             : 60,
+        #'batch_size'        : 240,  # Small batch size for Colab GPU memory
+        'batch_size'        : 240,  # Small batch size for Colab GPU memory
         'rand_seed'         : 1,
         
         # frontend model
@@ -101,9 +103,9 @@ def get_args():
         
         # data augmentation
         # 1. when Reading file
-        'DA_codec_speed'    : False,         # codec: 'aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wav', 'wma', speed: 'slow', 'fast'
+        'DA_codec_speed'    : True,         # codec: 'aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wav', 'wma', speed: 'slow', 'fast'
         # 2. when __getitem__
-        'DA_p'              : 0,
+        'DA_p'              : 0.5,
         'DA_list'           : [], # 'ACN': add_coloured_noise, 'FQM': frq_masking, 'MUS': MUSAN, 'RIR': RIR
         'DA_params'         : {
             'MUS': {'path': system_args['path_musan']},
@@ -111,7 +113,7 @@ def get_args():
         },
         # 3. when processing WaveformAugmentation which is in Framework
         #'DA_wav_aug_list'   : ['ACN'], 
-        'DA_wav_aug_list'   : [],
+        'DA_wav_aug_list'   : ['ACN'],
             # 'ACN': add_colored_noise, 'GAN': gain, 'HPF': high pass filter, 'LPF': low pass filter
             # if use 'HPF' or 'LPF' training speed will be slow
         'DA_wav_aug_params' :  {
@@ -122,8 +124,8 @@ def get_args():
             'GAN': {'min_gain_in_db': -15.0, 'max_gain_in_db': 5.0, 'p': 0.5}
         },
         # 4. when extracting acoustic_feature
-        'DA_frq_p'          : 0,
-        'DA_frq_mask'       : False,
+        'DA_frq_p'          : 1,
+        'DA_frq_mask'       : True,
         'DA_frq_mask_max'   : 20,
         
         # learning rate
@@ -139,5 +141,15 @@ def get_args():
         args[k] = v
     args['path_scripts'] = os.path.dirname(os.path.realpath(__file__))
     args['path_params'] = args['path_scripts'] + '/params'
+
+    # Basic config sanity check: train/val/test splits must sum to 1.0
+    split_sum = float(system_args.get('train_split', 0.0)) + float(system_args.get('val_split', 0.0)) + float(system_args.get('test_split', 0.0))
+    if abs(split_sum - 1.0) > 1e-6:
+        raise ValueError(
+            "train/val/test splits must sum to 1.0, got "
+            f"train_split={system_args.get('train_split')}, "
+            f"val_split={system_args.get('val_split')}, "
+            f"test_split={system_args.get('test_split')} (sum={split_sum})"
+        )
 
     return args, system_args, experiment_args
