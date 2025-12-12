@@ -57,6 +57,10 @@ def get_args():
 
     experiment_args = {
         'TEST'              : False,  # Set to True for testing/inference only
+        # Which checkpoint epoch to load when TEST=True.
+        # - Set to an int (e.g., 60) to force that epoch.
+        # - Set to None to auto-pick the latest available epoch in path_params.
+        'load_epoch'        : 60,
         # experiment
         #'epoch'             : 200,
         'epoch'             : 10,

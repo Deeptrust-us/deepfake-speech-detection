@@ -1,3 +1,5 @@
+import os
+import re
 import torch
 from .interface import Framework
 
@@ -53,6 +55,25 @@ class DeepfakeDetectionFramework_DA_multiloss(Framework):
         
     def load_model(self, args):
         path = args['path_params'] + '/'
+
+        # Choose which epoch checkpoint to load.
+        # - Set args['load_epoch']=60 to force epoch 60.
+        # - If args['load_epoch'] is None/missing, auto-pick the latest available epoch.
+        epoch = args.get('load_epoch', None)
+        if epoch is None:
+            pat = re.compile(r"^check_point_DF_frontend_(\d+)\.pt$")
+            epochs = []
+            for fn in os.listdir(args['path_params']):
+                m = pat.match(fn)
+                if m:
+                    epochs.append(int(m.group(1)))
+            if not epochs:
+                raise FileNotFoundError(
+                    "No checkpoints found in path_params. Expected files like "
+                    f"'check_point_DF_frontend_<epoch>.pt' in: {args['path_params']}"
+                )
+            epoch = max(epochs)
+
         param_list = ['frontend',
                       'backend0',
                       'backend1',
@@ -64,17 +85,19 @@ class DeepfakeDetectionFramework_DA_multiloss(Framework):
                       'loss2',
                       'loss3',
                       'loss4',]
-        load_param_list = ['check_point_DF_frontend_20.pt',
-                      'check_point_DF_backend0_20.pt',
-                      'check_point_DF_backend1_20.pt',
-                      'check_point_DF_backend2_20.pt',
-                      'check_point_DF_backend3_20.pt',
-                      'check_point_DF_backend4_20.pt',
-                      'check_point_DF_loss0_20.pt',
-                      'check_point_DF_loss1_20.pt',
-                      'check_point_DF_loss2_20.pt',
-                      'check_point_DF_loss3_20.pt',
-                      'check_point_DF_loss4_20.pt',]
+        load_param_list = [
+            f'check_point_DF_frontend_{epoch}.pt',
+            f'check_point_DF_backend0_{epoch}.pt',
+            f'check_point_DF_backend1_{epoch}.pt',
+            f'check_point_DF_backend2_{epoch}.pt',
+            f'check_point_DF_backend3_{epoch}.pt',
+            f'check_point_DF_backend4_{epoch}.pt',
+            f'check_point_DF_loss0_{epoch}.pt',
+            f'check_point_DF_loss1_{epoch}.pt',
+            f'check_point_DF_loss2_{epoch}.pt',
+            f'check_point_DF_loss3_{epoch}.pt',
+            f'check_point_DF_loss4_{epoch}.pt',
+        ]
         save_path = '/code/final_test/test/params'
         for i in range(11):
             self.set_params(param_list[i], path+load_param_list[i], save_path, load_param_list[i])
