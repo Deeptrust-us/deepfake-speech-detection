@@ -118,8 +118,6 @@ class MultilingualDataset:
         
         # Convert labels to DF_Item objects
         items = []
-        train_num_pos = 0  # fake (label=1)
-        train_num_neg = 0  # real (label=0)
         
         for entry in self.labels:
             # Get audio file path
@@ -156,12 +154,6 @@ class MultilingualDataset:
             if label == 0:
                 attack_type = 'real'  # For real samples, use 'real' as attack_type
             
-            # Count for class weights
-            if label == 0:
-                train_num_neg += 1
-            else:
-                train_num_pos += 1
-            
             # Create DF_Item
             item = DF_Item(
                 path=str(audio_path.resolve()),
@@ -194,7 +186,9 @@ class MultilingualDataset:
         # Explicit split non-emptiness checks.
         # NOTE: Because we use integer truncation, small totals can yield empty val/test even if split > 0.
         # We prefer failing fast with a clear message instead of silently training/evaluating on empty sets.
-        if len(self.train_set) == 0:
+        # Allow empty splits if and only if the corresponding split fraction is 0.
+        # This enables "test-only" runs such as train_split=0, val_split=0, test_split=1.
+        if train_split > 0.0 and len(self.train_set) == 0:
             raise ValueError(
                 f"Train split is empty (total_items={total}, train_split={train_split}). "
                 "Increase data size, adjust splits, or set selected_language=None."
@@ -213,6 +207,8 @@ class MultilingualDataset:
             )
         
         # Calculate class weights for balancing
+        train_num_neg = sum(1 for item in self.train_set if item.label == 0)
+        train_num_pos = sum(1 for item in self.train_set if item.label == 1)
         if train_num_neg > 0 and train_num_pos > 0:
             total_count = train_num_neg + train_num_pos
             self.class_weight.append(total_count / train_num_neg)  # weight for real (label=0)

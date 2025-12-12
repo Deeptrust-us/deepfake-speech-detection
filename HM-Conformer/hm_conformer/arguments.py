@@ -142,14 +142,21 @@ def get_args():
     args['path_scripts'] = os.path.dirname(os.path.realpath(__file__))
     args['path_params'] = args['path_scripts'] + '/params'
 
+    # If testing/inference only, evaluate on the full (optionally language-filtered) dataset.
+    # This prevents empty train/val splits and matches the common "test-only" expectation.
+    if args.get('TEST', False):
+        args['train_split'] = 0.0
+        args['val_split'] = 0.0
+        args['test_split'] = 1.0
+
     # Basic config sanity check: train/val/test splits must sum to 1.0
-    split_sum = float(system_args.get('train_split', 0.0)) + float(system_args.get('val_split', 0.0)) + float(system_args.get('test_split', 0.0))
+    split_sum = float(args.get('train_split', 0.0)) + float(args.get('val_split', 0.0)) + float(args.get('test_split', 0.0))
     if abs(split_sum - 1.0) > 1e-6:
         raise ValueError(
             "train/val/test splits must sum to 1.0, got "
-            f"train_split={system_args.get('train_split')}, "
-            f"val_split={system_args.get('val_split')}, "
-            f"test_split={system_args.get('test_split')} (sum={split_sum})"
+            f"train_split={args.get('train_split')}, "
+            f"val_split={args.get('val_split')}, "
+            f"test_split={args.get('test_split')} (sum={split_sum})"
         )
 
     return args, system_args, experiment_args

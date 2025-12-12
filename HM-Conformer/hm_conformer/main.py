@@ -39,246 +39,223 @@ def run(process_id, args, experiment_args):
             backend='nccl', world_size=args['world_size'], rank=args['rank'])
     flag_parent = process_id == 0
 
-    # logger
-    if flag_parent:
-        builder = egg_exp.log.LoggerList.Builder(args['name'], args['project'], args['tags'], args['description'], args['path_scripts'], args)
-        builder.use_local_logger(args['path_log'])
-        # builder.use_neptune_logger(args['neptune_user'], args['neptune_token'])
-        # builder.use_wandb_logger(args['wandb_entity'], args['wandb_api_key'], args['wandb_group'])
-        logger = builder.build()
-        logger.log_arguments(experiment_args)
-    else:
-        logger = None
-    
-    # data loader
-    # ============================================================================
-    # OLD CODE: ASVspoof2021_DF_LA dataset (commented out)
-    # ============================================================================
-    # asvspoof = egg_exp.data.dataset.ASVspoof2021_DF_LA(args['path_train'], args['path_test'], args['path_test_LA'], args['DA_codec_speed'], print_info=flag_parent)
-    # 
-    # train_set = data_processing.TrainSet(asvspoof.train_set, args['train_crop_size'], args['DA_p'], args['DA_list'], args['DA_params'])
-    # train_sampler = DistributedSampler(train_set, shuffle=True)
-    # train_loader = DataLoader(
-    #     train_set,
-    #     num_workers=args['num_workers'],
-    #     batch_size=args['batch_size'],
-    #     pin_memory=True,
-    #     sampler=train_sampler,
-    #     drop_last=True
-    # )
-    #
-    # test_set_DF = data_processing.TestSet(asvspoof.test_set, args['test_crop_size'])
-    # test_sampler = DistributedSampler(test_set_DF, shuffle=False)
-    # test_loader_DF = DataLoader(
-    #     test_set_DF,
-    #     num_workers=args['num_workers'],
-    #     batch_size=args['batch_size'],
-    #     pin_memory=True,
-    #     sampler=test_sampler,
-    #     drop_last=False
-    # )
-    # ============================================================================
-    
-    # ============================================================================
-    # NEW CODE: MultilingualDataset
-    # ============================================================================
-    # Load MultilingualDataset from labels.json
-    multilingual_dataset = egg_exp.data.dataset.MultilingualDataset(
-        labels_path=args.get('labels_path', args['path_train'] + '/labels.json'),
-        dataset_root=args.get('dataset_root', args['path_train']),
-        train_split=args.get('train_split', 0.8),
-        val_split=args.get('val_split', 0.1),
-        test_split=args.get('test_split', 0.1),
-        random_seed=args['rand_seed'],
-        selected_language=args.get('selected_language', None),
-        print_info=flag_parent
-    )
-    
-    # Create training set
-    train_set = data_processing.TrainSet(
-        multilingual_dataset.train_set,
-        args['train_crop_size'],
-        args['DA_p'],
-        args['DA_list'],
-        args['DA_params']
-    )
-    train_sampler = DistributedSampler(train_set, shuffle=True)
-    train_loader = DataLoader(
-        train_set,
-        num_workers=args['num_workers'],
-        batch_size=args['batch_size'],
-        pin_memory=True,
-        sampler=train_sampler,
-        drop_last=True
-    )
-    
-    # Create validation set (using val_split from MultilingualDataset)
-    val_set = data_processing.TestSet(
-        multilingual_dataset.val_set,
-        args['test_crop_size']
-    )
-    val_sampler = DistributedSampler(val_set, shuffle=False)
-    val_loader = DataLoader(
-        val_set,
-        num_workers=args['num_workers'],
-        batch_size=args['batch_size'],
-        pin_memory=True,
-        sampler=val_sampler,
-        drop_last=False
-    )
-    
-    # Create test set (using test_split from MultilingualDataset)
-    test_set_DF = data_processing.TestSet(
-        multilingual_dataset.test_set,
-        args['test_crop_size']
-    )
-    test_sampler = DistributedSampler(test_set_DF, shuffle=False)
-    test_loader_DF = DataLoader(
-        test_set_DF,
-        num_workers=args['num_workers'],
-        batch_size=args['batch_size'],
-        pin_memory=True,
-        sampler=test_sampler,
-        drop_last=False
-    )
-    # ============================================================================
-    
-    # Waveform augmentation
-    augmentation = None
-    if len(args['DA_wav_aug_list']) != 0:
-        augmentation = egg_exp.data.augmentation.WaveformAugmetation(args['DA_wav_aug_list'], args['DA_wav_aug_params'])
-    
-    # data preprocessing
-    preprocessing = egg_exp.framework.model.LFCC(args['sample_rate'], args['n_lfcc'], 
-            args['coef'], args['n_fft'], args['win_length'], args['hop'], args['with_delta'], args['with_emphasis'], args['with_energy'],
-            args['DA_frq_mask'], args['DA_frq_p'], args['DA_frq_mask_max'])
- 
-    # frontend
-    frontend = egg_exp.framework.model.HM_Conformer(bin_size=args['bin_size'], output_size=args['output_size'], input_layer=args['input_layer'],
-            pos_enc_layer_type=args['pos_enc_layer_type'], linear_units=args['linear_units'], cnn_module_kernel=args['cnn_module_kernel'],
-            dropout=args['dropout'], emb_dropout=args['emb_dropout'], multiloss=True)
-
-    # backend
-    backends = []
-    criterions = []
-    for i in range(5):
-        backend = egg_exp.framework.model.CLSBackend(in_dim=args['output_size'], hidden_dim=args['embedding_size'], use_pooling=args['use_pooling'], input_mean_std=args['input_mean_std'])
-        backends.append(backend)
+    try:
+        # logger
+        if flag_parent:
+            builder = egg_exp.log.LoggerList.Builder(args['name'], args['project'], args['tags'], args['description'], args['path_scripts'], args)
+            builder.use_local_logger(args['path_log'])
+            # builder.use_neptune_logger(args['neptune_user'], args['neptune_token'])
+            # builder.use_wandb_logger(args['wandb_entity'], args['wandb_api_key'], args['wandb_group'])
+            logger = builder.build()
+            logger.log_arguments(experiment_args)
+        else:
+            logger = None
         
-        # criterion
-        criterion = egg_exp.framework.loss.OCSoftmax(embedding_size=args['embedding_size'], 
-            num_class=args['num_class'], feat_dim=args['feat_dim'], r_real=args['r_real'], 
-            r_fake=args['r_fake'], alpha=args['alpha'])
-        criterions.append(criterion)
-    
-    # set framework
-    # Always use DeepfakeDetectionFramework_DA_multiloss (it handles None augmentation)
-    framework = egg_exp.framework.DeepfakeDetectionFramework_DA_multiloss(
-        augmentation=augmentation,
-        preprocessing=preprocessing,
-        frontend=frontend,
-        backend=backends,
-        loss=criterions,
-        loss_weight=args['loss_weight'],
-    )
-    framework.use_distributed_data_parallel(f'cuda:{process_id}', True)
+        # data loader
+        # ============================================================================
+        # NEW CODE: MultilingualDataset
+        # ============================================================================
+        multilingual_dataset = egg_exp.data.dataset.MultilingualDataset(
+            labels_path=args.get('labels_path', args['path_train'] + '/labels.json'),
+            dataset_root=args.get('dataset_root', args['path_train']),
+            train_split=args.get('train_split', 0.8),
+            val_split=args.get('val_split', 0.1),
+            test_split=args.get('test_split', 0.1),
+            random_seed=args['rand_seed'],
+            selected_language=args.get('selected_language', None),
+            print_info=flag_parent
+        )
 
-    # optimizer
-    optimizer = torch.optim.Adam(framework.get_parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
+        # Always create test loader
+        test_set_DF = data_processing.TestSet(
+            multilingual_dataset.test_set,
+            args['test_crop_size']
+        )
+        test_sampler = DistributedSampler(test_set_DF, shuffle=False)
+        test_loader_DF = DataLoader(
+            test_set_DF,
+            num_workers=args['num_workers'],
+            batch_size=args['batch_size'],
+            pin_memory=True,
+            sampler=test_sampler,
+            drop_last=False
+        )
+
+        # Only create train/val loaders when actually training
+        train_sampler = None
+        train_loader = None
+        val_loader = None
+        if not args['TEST']:
+            train_set = data_processing.TrainSet(
+                multilingual_dataset.train_set,
+                args['train_crop_size'],
+                args['DA_p'],
+                args['DA_list'],
+                args['DA_params']
+            )
+            train_sampler = DistributedSampler(train_set, shuffle=True)
+            train_loader = DataLoader(
+                train_set,
+                num_workers=args['num_workers'],
+                batch_size=args['batch_size'],
+                pin_memory=True,
+                sampler=train_sampler,
+                drop_last=True
+            )
+
+            val_set = data_processing.TestSet(
+                multilingual_dataset.val_set,
+                args['test_crop_size']
+            )
+            val_sampler = DistributedSampler(val_set, shuffle=False)
+            val_loader = DataLoader(
+                val_set,
+                num_workers=args['num_workers'],
+                batch_size=args['batch_size'],
+                pin_memory=True,
+                sampler=val_sampler,
+                drop_last=False
+            )
+        # ============================================================================
         
-    # lr scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer,
-        T_0=args['epoch'],
-        T_mult=args['T_mult'],
-        eta_min=args['lr_min']
-    )
-
-    # ===================================================
-    #                    Test
-    # ===================================================
-    if args['TEST']:
-        framework.load_model(args)
+        # Waveform augmentation
+        augmentation = None
+        if len(args['DA_wav_aug_list']) != 0:
+            augmentation = egg_exp.data.augmentation.WaveformAugmetation(args['DA_wav_aug_list'], args['DA_wav_aug_params'])
         
-        # Get full metrics
-        metrics = train.test(framework, test_loader_DF, get_full_metrics=True)
+        # data preprocessing
+        preprocessing = egg_exp.framework.model.LFCC(args['sample_rate'], args['n_lfcc'], 
+                args['coef'], args['n_fft'], args['win_length'], args['hop'], args['with_delta'], args['with_emphasis'], args['with_energy'],
+                args['DA_frq_mask'], args['DA_frq_p'], args['DA_frq_mask_max'])
+     
+        # frontend
+        frontend = egg_exp.framework.model.HM_Conformer(bin_size=args['bin_size'], output_size=args['output_size'], input_layer=args['input_layer'],
+                pos_enc_layer_type=args['pos_enc_layer_type'], linear_units=args['linear_units'], cnn_module_kernel=args['cnn_module_kernel'],
+                dropout=args['dropout'], emb_dropout=args['emb_dropout'], multiloss=True)
+
+        # backend
+        backends = []
+        criterions = []
+        for i in range(5):
+            backend = egg_exp.framework.model.CLSBackend(in_dim=args['output_size'], hidden_dim=args['embedding_size'], use_pooling=args['use_pooling'], input_mean_std=args['input_mean_std'])
+            backends.append(backend)
+            
+            # criterion
+            criterion = egg_exp.framework.loss.OCSoftmax(embedding_size=args['embedding_size'], 
+                num_class=args['num_class'], feat_dim=args['feat_dim'], r_real=args['r_real'], 
+                r_fake=args['r_fake'], alpha=args['alpha'])
+            criterions.append(criterion)
         
-        # Print results
-        print('\n' + '='*60)
-        print('Test Results')
-        print('='*60)
-        print(f'EER:           {metrics["eer"]:.4f}%')
-        print(f'Accuracy:      {metrics["accuracy"]:.4f}')
-        print(f'F1 Score:      {metrics["f1_score"]:.4f}')
-        print(f'Precision:     {metrics["precision"]:.4f}')
-        print(f'Recall:        {metrics["recall"]:.4f}')
-        if metrics.get('roc_auc') is not None:
-            print(f'ROC AUC:       {metrics["roc_auc"]:.4f}')
-        print(f'Threshold:     {metrics["threshold"]:.4f}')
-        print(f'\nConfusion Matrix:')
-        print(metrics['confusion_matrix'])
-        print(f'\nClassification Report:')
-        print(metrics['classification_report'])
-        print('='*60)
-        
-        # Log metrics
-        if logger is not None:
-            logger.log_metric('DF_EER', metrics['eer'], 0)
-            logger.log_metric('DF_Accuracy', metrics['accuracy'], 0)
-            logger.log_metric('DF_F1', metrics['f1_score'], 0)
-            logger.log_metric('DF_Precision', metrics['precision'], 0)
-            logger.log_metric('DF_Recall', metrics['recall'], 0)
-            if metrics.get('roc_auc') is not None:
-                logger.log_metric('DF_ROC_AUC', metrics['roc_auc'], 0)
-        
-        # Also print the old format for compatibility
-        print('\nDF: ', metrics['eer'])
+        # set framework
+        framework = egg_exp.framework.DeepfakeDetectionFramework_DA_multiloss(
+            augmentation=augmentation,
+            preprocessing=preprocessing,
+            frontend=frontend,
+            backend=backends,
+            loss=criterions,
+            loss_weight=args['loss_weight'],
+        )
+        framework.use_distributed_data_parallel(f'cuda:{process_id}', True)
 
-    # ===================================================
-    #                    Train
-    # ===================================================
-    else:
-        best_eer_DF = 100
-        best_state_DF = framework.copy_state_dict()
-        cnt_early_stop = 0
+        # ===================================================
+        #                    Test (test-only)
+        # ===================================================
+        if args['TEST']:
+            framework.load_model(args)
+            
+            metrics = train.test(framework, test_loader_DF, get_full_metrics=True)
+            
+            # Print results (rank0 only)
+            if flag_parent:
+                print('\n' + '='*60)
+                print('Test Results')
+                print('='*60)
+                print(f'EER:           {metrics["eer"]:.4f}%')
+                print(f'Accuracy:      {metrics["accuracy"]:.4f}')
+                print(f'F1 Score:      {metrics["f1_score"]:.4f}')
+                print(f'Precision:     {metrics["precision"]:.4f}')
+                print(f'Recall:        {metrics["recall"]:.4f}')
+                if metrics.get('roc_auc') is not None:
+                    print(f'ROC AUC:       {metrics["roc_auc"]:.4f}')
+                print(f'Threshold:     {metrics["threshold"]:.4f}')
+                print(f'\nConfusion Matrix:')
+                print(metrics['confusion_matrix'])
+                print(f'\nClassification Report:')
+                print(metrics['classification_report'])
+                print('='*60)
+                # Backward-compatible print
+                print('\nDF: ', metrics['eer'])
+            
+            # Log metrics (rank0 only)
+            if logger is not None:
+                logger.log_metric('DF_EER', metrics['eer'], 0)
+                logger.log_metric('DF_Accuracy', metrics['accuracy'], 0)
+                logger.log_metric('DF_F1', metrics['f1_score'], 0)
+                logger.log_metric('DF_Precision', metrics['precision'], 0)
+                logger.log_metric('DF_Recall', metrics['recall'], 0)
+                if metrics.get('roc_auc') is not None:
+                    logger.log_metric('DF_ROC_AUC', metrics['roc_auc'], 0)
 
-        # load model
-        pre_trained_model = os.path.join(args['path_scripts'], 'model')
-        if os.path.exists(pre_trained_model):
-            state_dict = {}
-            for pt in os.listdir((pre_trained_model)):
-                state_dict[pt.replace('.pt', '')] = torch.load(pt)
-            framework.load_state_dict(state_dict)
+        # ===================================================
+        #                    Train
+        # ===================================================
+        else:
+            # optimizer
+            optimizer = torch.optim.Adam(framework.get_parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
+            
+            # lr scheduler
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                optimizer,
+                T_0=args['epoch'],
+                T_mult=args['T_mult'],
+                eta_min=args['lr_min']
+            )
 
-        for epoch in range(1, args['epoch'] + 1):
-            scheduler.step(epoch)
+            best_eer_DF = 100
+            best_state_DF = framework.copy_state_dict()
+            cnt_early_stop = 0
 
-            # train
-            train_sampler.set_epoch(epoch)
-            train.train(epoch, framework, optimizer, train_loader, logger)
+            # load model
+            pre_trained_model = os.path.join(args['path_scripts'], 'model')
+            if os.path.exists(pre_trained_model):
+                state_dict = {}
+                for pt in os.listdir((pre_trained_model)):
+                    state_dict[pt.replace('.pt', '')] = torch.load(pt)
+                framework.load_state_dict(state_dict)
 
-            # validate (compute validation loss)
-            train.validate(epoch, framework, val_loader, logger)
+            for epoch in range(1, args['epoch'] + 1):
+                scheduler.step(epoch)
 
-            # test_DF
-            if epoch % 5 == 0:
-                cnt_early_stop += 1
-                eer = train.test(framework, test_loader_DF)
+                # train
+                train_sampler.set_epoch(epoch)
+                train.train(epoch, framework, optimizer, train_loader, logger)
 
-                # logging
-                if eer < best_eer_DF:
-                    cnt_early_stop = 0
-                    best_eer_DF = eer
-                    best_state_ft = framework.copy_state_dict()
+                # validate (compute validation loss)
+                train.validate(epoch, framework, val_loader, logger)
+
+                # test_DF
+                if epoch % 5 == 0:
+                    cnt_early_stop += 1
+                    eer = train.test(framework, test_loader_DF)
+
+                    # logging
+                    if eer < best_eer_DF:
+                        cnt_early_stop = 0
+                        best_eer_DF = eer
+                        best_state_ft = framework.copy_state_dict()
+                        if logger is not None:
+                            logger.log_metric('BestEER', eer, epoch)
+                            for key, v in best_state_ft.items():
+                                logger.save_model(
+                                    f'check_point_DF_{key}_{epoch}', v)
                     if logger is not None:
-                        logger.log_metric('BestEER', eer, epoch)
-                        for key, v in best_state_ft.items():
-                            logger.save_model(
-                                f'check_point_DF_{key}_{epoch}', v)
-                if logger is not None:
-                    logger.log_metric('EER', eer, epoch)
-                if cnt_early_stop >= 6:
-                    break
+                        logger.log_metric('EER', eer, epoch)
+                    if cnt_early_stop >= 6:
+                        break
+    finally:
+        # Prevent NCCL resource leak warnings
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
                 
 
 if __name__ == '__main__':
