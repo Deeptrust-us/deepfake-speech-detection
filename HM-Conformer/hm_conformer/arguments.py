@@ -10,8 +10,8 @@ def get_args():
     """
     system_args = {
         # expeirment info
-        'project'       : 'Multilingual-Testing-EN',
-        'name'          : 'HM-Conformer_es',
+        'project'       : 'Multilingual-Testing-ES',
+        'name'          : 'HM-Conformer_en',
         'tags'          : [],
         'description'   : '',
 
