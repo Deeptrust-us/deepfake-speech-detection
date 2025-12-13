@@ -19,10 +19,11 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
 
 @dataclass
@@ -41,10 +42,14 @@ class ParsedResult:
     threshold: Optional[float] = None
 
 
+def _timestamp() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
 def _load_languages(labels_path: Path) -> List[str]:
     data = json.loads(labels_path.read_text(encoding="utf-8"))
     langs = sorted({str(x.get("language")).strip() for x in data if x.get("language")})
-    return [l for l in langs if l]
+    return [lang for lang in langs if lang]
 
 
 def _parse_int(s: str) -> Optional[int]:
@@ -95,6 +100,49 @@ def parse_metrics_from_log(text: str, language: str, exit_code: int) -> ParsedRe
         r.threshold = _parse_float(m.group(1))
 
     return r
+
+
+def _run_and_tee(cmd: List[str], env: dict, log_path: Path, *, live: bool) -> int:
+    """
+    Run a subprocess and write all output to log_path.
+    If live=True, also stream output to this process stdout.
+    """
+    # Force unbuffered python output (helps see progress immediately)
+    env = dict(env)
+    env.setdefault("PYTHONUNBUFFERED", "1")
+
+    # Ensure parent directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with log_path.open("w", encoding="utf-8") as f:
+        f.write(f"COMMAND: {' '.join(cmd)}\n")
+        f.write(f"START: {_timestamp()}\n")
+        f.write("\n")
+        f.flush()
+
+        p = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+            text=True,
+            bufsize=1,  # line-buffered
+        )
+
+        assert p.stdout is not None
+        for line in p.stdout:
+            f.write(line)
+            if live:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+        exit_code = p.wait()
+
+        f.write("\n")
+        f.write(f"END: {_timestamp()}\n")
+        f.write(f"EXIT_CODE: {exit_code}\n")
+        f.flush()
+
+    return exit_code
 
 
 def _fmt_pct(x: Optional[float], digits: int = 2) -> str:
@@ -187,6 +235,7 @@ def main() -> int:
     parser.add_argument("--include", type=str, default=None, help='Comma-separated language codes to include (e.g. "en,es,it")')
     parser.add_argument("--exclude", type=str, default=None, help='Comma-separated language codes to exclude')
     parser.add_argument("--continue_on_error", action="store_true", help="Continue to next language even if a run fails (default: stop)")
+    parser.add_argument("--no_live", action="store_true", help="Do not stream logs to console (still writes .txt files)")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]  # .../deepfake-speech-detection
@@ -205,9 +254,10 @@ def main() -> int:
     include = [x.strip() for x in (args.include.split(",") if args.include else []) if x.strip()]
     exclude = {x.strip() for x in (args.exclude.split(",") if args.exclude else []) if x.strip()}
     if include:
-        languages = [l for l in languages if l in set(include)]
+        include_set = set(include)
+        languages = [lang for lang in languages if lang in include_set]
     if exclude:
-        languages = [l for l in languages if l not in exclude]
+        languages = [lang for lang in languages if lang not in exclude]
     if not languages:
         print("No languages to run (after include/exclude).", file=sys.stderr)
         return 2
@@ -215,7 +265,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     results: List[ParsedResult] = []
-    for lang in languages:
+    total_langs = len(languages)
+    for idx, lang in enumerate(languages, start=1):
         log_path = out_dir / f"output_{lang}.txt"
 
         env = os.environ.copy()
@@ -234,25 +285,44 @@ def main() -> int:
         # Make experiment naming deterministic per language (useful in logs/results)
         env.setdefault("HM_PROJECT", "Multilingual-Testing")
         env["HM_NAME"] = f"HM-Conformer_{lang}"
+        env.setdefault("PYTHONUNBUFFERED", "1")
 
-        cmd = [sys.executable, str(hm_main)]
-        with log_path.open("w", encoding="utf-8") as f:
-            f.write(f"COMMAND: {' '.join(cmd)}\n")
-            f.write(f"HM_SELECTED_LANGUAGE={lang}\n")
-            f.write(f"HM_LABELS_PATH={labels_path}\n")
-            if dataset_root is not None:
-                f.write(f"HM_DATASET_ROOT={dataset_root}\n")
-            if path_params is not None:
-                f.write(f"HM_PATH_PARAMS={path_params}\n")
-            if args.load_epoch is not None:
-                f.write(f"HM_LOAD_EPOCH={args.load_epoch}\n")
-            if args.usable_gpu is not None:
-                f.write(f"HM_USABLE_GPU={args.usable_gpu}\n")
-            f.write("\n")
-            f.flush()
+        # -u makes python unbuffered (important for real-time streaming)
+        cmd = [sys.executable, "-u", str(hm_main)]
 
-            p = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
-            exit_code = p.wait()
+        # High-level progress prints
+        print(f"\n[{idx}/{total_langs}] Running language={lang!r}")
+        print(f"Log file: {log_path}")
+        t0 = time.time()
+
+        # Put key env settings at the top of each log
+        preface = (
+            f"HM_SELECTED_LANGUAGE={lang}\n"
+            f"HM_LABELS_PATH={labels_path}\n"
+            + (f"HM_DATASET_ROOT={dataset_root}\n" if dataset_root is not None else "")
+            + (f"HM_PATH_PARAMS={path_params}\n" if path_params is not None else "")
+            + (f"HM_LOAD_EPOCH={args.load_epoch}\n" if args.load_epoch is not None else "")
+            + (f"HM_USABLE_GPU={args.usable_gpu}\n" if args.usable_gpu is not None else "")
+            + "\n"
+        )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(preface, encoding="utf-8")
+
+        # Run and tee output (append to the preface)
+        # NOTE: We open the log in _run_and_tee, so we append the preface ourselves above.
+        # To avoid overwriting, run _run_and_tee on a temp path then append. Simpler: rerun with append mode.
+        # Here we re-implement minimal append behavior by calling _run_and_tee with a temporary path.
+        tmp_log = log_path.with_suffix(".tmp")
+        exit_code = _run_and_tee(cmd, env, tmp_log, live=(not args.no_live))
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(tmp_log.read_text(encoding="utf-8", errors="replace"))
+        try:
+            tmp_log.unlink()
+        except OSError:
+            pass
+
+        dt = time.time() - t0
+        print(f"[{idx}/{total_langs}] Done language={lang!r} exit_code={exit_code} elapsed={dt:.1f}s")
 
         text = log_path.read_text(encoding="utf-8", errors="replace")
         parsed = parse_metrics_from_log(text, language=lang, exit_code=exit_code)

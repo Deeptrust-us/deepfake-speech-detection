@@ -40,6 +40,22 @@ def run(process_id, args, experiment_args):
     flag_parent = process_id == 0
 
     try:
+        # Helpful runtime info (rank0 only)
+        if flag_parent:
+            print("\n" + "=" * 60)
+            print("HM-Conformer Run Info")
+            print("=" * 60)
+            print(f"TEST mode:           {args.get('TEST')}")
+            print(f"Selected language:   {args.get('selected_language')}")
+            print(f"labels_path:         {args.get('labels_path', args.get('path_train', '') + '/labels.json')}")
+            print(f"dataset_root:        {args.get('dataset_root', args.get('path_train'))}")
+            print(f"path_params:         {args.get('path_params')}")
+            print(f"load_epoch:          {args.get('load_epoch')}")
+            print(f"usable_gpu:          {args.get('usable_gpu')}")
+            print(f"world_size:          {args.get('world_size')}")
+            print(f"batch_size (per GPU):{args.get('batch_size')}")
+            print("=" * 60 + "\n")
+
         # logger
         if flag_parent:
             builder = egg_exp.log.LoggerList.Builder(args['name'], args['project'], args['tags'], args['description'], args['path_scripts'], args)
@@ -161,7 +177,11 @@ def run(process_id, args, experiment_args):
         #                    Test (test-only)
         # ===================================================
         if args['TEST']:
+            if flag_parent:
+                print("Loading model checkpoint...")
             framework.load_model(args)
+            if flag_parent:
+                print("Model loaded. Running test...")
             
             metrics = train.test(framework, test_loader_DF, get_full_metrics=True)
             
