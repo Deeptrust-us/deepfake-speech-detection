@@ -9,3 +9,4 @@ dataset_audios/
 raw_data.zip
 
 _pycache_/
+__pycache__/
