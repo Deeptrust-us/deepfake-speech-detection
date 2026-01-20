@@ -79,7 +79,7 @@ def main() -> int:
     parser.add_argument(
         "--balance",
         action="store_true",
-        help="Downsample the majority class in the TRAIN split (recommended when real >> fake).",
+        help="Enable class-balanced sampling (oversample minority during training; does NOT discard data).",
     )
     parser.add_argument(
         "--no-balance",
