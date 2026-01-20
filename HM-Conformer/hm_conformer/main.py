@@ -48,6 +48,7 @@ def run(process_id, args, experiment_args):
             print(f"TEST mode:           {args.get('TEST')}")
             print(f"Selected language:   {args.get('selected_language')}")
             print(f"Selected fake model: {args.get('selected_fake_model')}")
+            print(f"Exclude fake models: {args.get('exclude_fake_models')}")
             print(f"labels_path:         {args.get('labels_path', args.get('path_train', '') + '/labels.json')}")
             print(f"dataset_root:        {args.get('dataset_root', args.get('path_train'))}")
             print(f"path_params:         {args.get('path_params')}")
@@ -81,6 +82,7 @@ def run(process_id, args, experiment_args):
             random_seed=args['rand_seed'],
             selected_language=args.get('selected_language', None),
             selected_fake_model=args.get('selected_fake_model', None),
+            exclude_fake_models=args.get('exclude_fake_models', None),
             print_info=flag_parent
         )
 

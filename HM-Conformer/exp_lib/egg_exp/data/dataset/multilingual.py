@@ -38,6 +38,7 @@ class MultilingualDataset:
         random_seed: int = 42,
         selected_language: Optional[str] = None,
         selected_fake_model: Optional[str] = None,
+        exclude_fake_models: Optional[List[str]] = None,
         print_info: bool = False
     ):
         """
@@ -53,6 +54,8 @@ class MultilingualDataset:
             selected_language: Filter by language code (e.g., 'en', 'it'). If None, uses all languages (default: None)
             selected_fake_model: If set, keep ALL real samples, and keep ONLY fake samples where
                 entry["model_or_speaker"] == selected_fake_model. Can be combined with selected_language. (default: None)
+            exclude_fake_models: If set, keep ALL real samples, and EXCLUDE fake samples where
+                entry["model_or_speaker"] is in exclude_fake_models. Mutually exclusive with selected_fake_model. (default: None)
             print_info: Whether to print dataset information (default: False)
         """
         import random
@@ -105,6 +108,23 @@ class MultilingualDataset:
         else:
             self.labels = all_labels
 
+        # Normalize exclude_fake_models (strip, drop empties)
+        exclude_set = None
+        if exclude_fake_models is not None:
+            if isinstance(exclude_fake_models, str):
+                exclude_fake_models = [exclude_fake_models]
+            exclude_norm = []
+            for x in list(exclude_fake_models):
+                if x is None:
+                    continue
+                s = str(x).strip()
+                if s:
+                    exclude_norm.append(s)
+            exclude_set = set(exclude_norm) if exclude_norm else None
+
+        if selected_fake_model is not None and exclude_set is not None:
+            raise ValueError("selected_fake_model and exclude_fake_models are mutually exclusive; set only one.")
+
         # Filter by fake model if selected_fake_model is specified:
         # - Keep ALL real entries
         # - Keep ONLY fake entries matching model_or_speaker
@@ -128,6 +148,28 @@ class MultilingualDataset:
                     print(f"Filtered fake samples by model_or_speaker: '{selected_fake_model_norm}' (kept all real samples)")
                     print(f"Total entries before fake-model filtering: {before_n}")
                     print(f"Total entries after fake-model filtering:  {len(self.labels)}")
+
+        # Exclude fake models if exclude_fake_models is specified:
+        # - Keep ALL real entries
+        # - Keep ONLY fake entries where model_or_speaker NOT IN exclude_set
+        if exclude_set is not None:
+            before_n = len(self.labels)
+            filtered = []
+            for entry in self.labels:
+                label_str = str(entry.get("label", "real")).strip().lower()
+                if label_str == "fake":
+                    mos = str(entry.get("model_or_speaker", "")).strip()
+                    if mos in exclude_set:
+                        continue
+                    filtered.append(entry)
+                else:
+                    filtered.append(entry)
+            self.labels = filtered
+            if print_info:
+                excl_disp = ", ".join(sorted(exclude_set))
+                print(f"Excluded fake samples by model_or_speaker in: [{excl_disp}] (kept all real samples)")
+                print(f"Total entries before fake-model exclusion: {before_n}")
+                print(f"Total entries after fake-model exclusion:  {len(self.labels)}")
         
         # Determine dataset root
         if dataset_root is None:
@@ -254,6 +296,8 @@ class MultilingualDataset:
             
             language_info = f"Language: {selected_language}" if selected_language else "Language: All languages"
             model_info = f"Fake model filter: {selected_fake_model}" if selected_fake_model else "Fake model filter: (none)"
+            if exclude_set is not None:
+                model_info += f" | Exclude fake models: {', '.join(sorted(exclude_set))}"
             info = (
                 f'====================\n'
                 + f'  MultilingualDataset\n'

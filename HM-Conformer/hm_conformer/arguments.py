@@ -49,7 +49,8 @@ def get_args():
         # Fake-model filtering (optional):
         # If set, keep ALL real samples, and keep ONLY fake samples where model_or_speaker == selected_fake_model.
         # Can be combined with selected_language.
-        'selected_fake_model': 'OuteTTS',
+        # If None, use fake samples from all models.
+        'selected_fake_model': None,
         
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
@@ -157,6 +158,8 @@ def get_args():
     # Supported env vars:
     # - HM_SELECTED_LANGUAGE: language code (e.g. "en") or "all"/"none" for no filter
     # - HM_SELECTED_FAKE_MODEL: model_or_speaker name for fake samples (e.g. "Chatterbox Multilingual") or "all"/"none" for no filter
+    # - HM_EXCLUDE_FAKE_MODELS: comma-separated model_or_speaker names to EXCLUDE from fake samples
+    #   (real samples are always kept). Example: "OuteTTS,griffin_lim". Mutually exclusive with HM_SELECTED_FAKE_MODEL.
     # - HM_LOAD_EPOCH: int epoch to load (e.g. "60") or "none" to auto-pick latest
     # - HM_PATH_PARAMS: override checkpoint directory (models folder)
     # - HM_LABELS_PATH: override labels.json path
@@ -235,6 +238,13 @@ def get_args():
             args["selected_fake_model"] = None
         else:
             args["selected_fake_model"] = v
+
+    # Fake-model exclusion list (applies ONLY to fake samples; real samples are always kept)
+    v = _env_str("HM_EXCLUDE_FAKE_MODELS")
+    if v is not None:
+        parts = [p.strip() for p in str(v).split(",")]
+        parts = [p for p in parts if p]
+        args["exclude_fake_models"] = parts if parts else None
 
     # TEST mode and checkpoint epoch
     vb = _env_bool("HM_TEST")
