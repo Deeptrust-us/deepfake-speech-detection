@@ -20,6 +20,7 @@ from pathlib import Path
 
 
 FAKE_MODELS = [
+    "OuteTTS",
     "griffin_lim",
     "tts_models_multilingual_multi-dataset_bark",
     "tts_models_multilingual_multi-dataset_xtts_v1.1",
