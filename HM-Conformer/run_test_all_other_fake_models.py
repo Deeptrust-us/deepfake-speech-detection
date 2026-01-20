@@ -103,6 +103,11 @@ def main() -> int:
         default=None,
         help='Comma-separated extra fake models to exclude (in addition to --trained_on_fake_model).',
     )
+    parser.add_argument(
+        "--all_languages_together",
+        action="store_true",
+        help="Run a single test job using all languages together (no per-language filtering/loop).",
+    )
     parser.add_argument("--out_dir", type=str, default="experiments/cross_model_eval/outputs", help="Output folder for per-language .txt logs (set to empty to disable)")
     parser.add_argument("--include", type=str, default=None, help='Comma-separated language codes to include (e.g. "en,es,it")')
     parser.add_argument("--exclude", type=str, default=None, help='Comma-separated language codes to exclude')
@@ -153,6 +158,51 @@ def main() -> int:
     exclude_models = sorted(set(exclude_models))
 
     total_langs = len(languages)
+    if args.all_languages_together:
+        env = os.environ.copy()
+        env["HM_TEST"] = "1"
+        # IMPORTANT: ensure we do not filter by language
+        env["HM_SELECTED_LANGUAGE"] = "all"
+        env["HM_LABELS_PATH"] = str(labels_path)
+
+        # IMPORTANT: ensure we do not accidentally enable "selected_fake_model" filtering
+        env["HM_SELECTED_FAKE_MODEL"] = "all"
+
+        # Exclude the trained-on fake model (and optionally others) from fake samples.
+        env["HM_EXCLUDE_FAKE_MODELS"] = ",".join(exclude_models)
+
+        if dataset_root is not None:
+            env["HM_DATASET_ROOT"] = str(dataset_root)
+        if path_params is not None:
+            env["HM_PATH_PARAMS"] = str(path_params)
+        if args.usable_gpu is not None:
+            env["HM_USABLE_GPU"] = args.usable_gpu
+        if args.load_epoch is not None:
+            env["HM_LOAD_EPOCH"] = args.load_epoch
+
+        env.setdefault("HM_PROJECT", "Cross-Model-Testing")
+        env["HM_NAME"] = f"HM-Conformer_otherfakes_excl_{trained_on}_ALL_LANGS"
+
+        cmd = [sys.executable, "-u", str(hm_main)]
+        print("\n" + "=" * 90)
+        print("Single run: ALL languages together")
+        print(f"Exclude fake models: {exclude_models}")
+        if path_params is not None:
+            print(f"path_params: {path_params}")
+        if args.load_epoch is not None:
+            print(f"load_epoch: {args.load_epoch}")
+        print("=" * 90)
+
+        log_path = (out_dir / f"output_otherfakes_excl_{trained_on}_ALL_LANGS.txt") if out_dir is not None else None
+        t0 = time.time()
+        exit_code = _run_and_tee(cmd, env, live=(not args.no_live), log_path=log_path)
+        dt = time.time() - t0
+
+        print(f"\nDone ALL_LANGS exit_code={exit_code} elapsed={dt:.1f}s")
+        if log_path is not None:
+            print(f"Log file: {log_path}")
+        return exit_code
+
     for idx, lang in enumerate(languages, start=1):
         env = os.environ.copy()
         env["HM_TEST"] = "1"
