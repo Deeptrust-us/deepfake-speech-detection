@@ -37,6 +37,7 @@ class MultilingualDataset:
         test_split: float = 0.1,
         random_seed: int = 42,
         selected_language: Optional[str] = None,
+        selected_fake_model: Optional[str] = None,
         print_info: bool = False
     ):
         """
@@ -50,6 +51,8 @@ class MultilingualDataset:
             test_split: Fraction of data for testing (default: 0.1)
             random_seed: Random seed for splitting (default: 42)
             selected_language: Filter by language code (e.g., 'en', 'it'). If None, uses all languages (default: None)
+            selected_fake_model: If set, keep ALL real samples, and keep ONLY fake samples where
+                entry["model_or_speaker"] == selected_fake_model. Can be combined with selected_language. (default: None)
             print_info: Whether to print dataset information (default: False)
         """
         import random
@@ -101,6 +104,30 @@ class MultilingualDataset:
                 print(f"Total entries after filtering: {len(self.labels)}")
         else:
             self.labels = all_labels
+
+        # Filter by fake model if selected_fake_model is specified:
+        # - Keep ALL real entries
+        # - Keep ONLY fake entries matching model_or_speaker
+        if selected_fake_model is not None:
+            before_n = len(self.labels)
+            selected_fake_model_norm = str(selected_fake_model).strip()
+            if selected_fake_model_norm == "":
+                selected_fake_model_norm = None
+            if selected_fake_model_norm is not None:
+                filtered = []
+                for entry in self.labels:
+                    label_str = str(entry.get("label", "real")).strip().lower()
+                    if label_str == "fake":
+                        if str(entry.get("model_or_speaker", "")).strip() == selected_fake_model_norm:
+                            filtered.append(entry)
+                    else:
+                        # For reals, do not filter by model_or_speaker (it's a speaker there)
+                        filtered.append(entry)
+                self.labels = filtered
+                if print_info:
+                    print(f"Filtered fake samples by model_or_speaker: '{selected_fake_model_norm}' (kept all real samples)")
+                    print(f"Total entries before fake-model filtering: {before_n}")
+                    print(f"Total entries after fake-model filtering:  {len(self.labels)}")
         
         # Determine dataset root
         if dataset_root is None:
@@ -226,10 +253,12 @@ class MultilingualDataset:
             test_fake = sum(1 for item in self.test_set if item.label == 1)
             
             language_info = f"Language: {selected_language}" if selected_language else "Language: All languages"
+            model_info = f"Fake model filter: {selected_fake_model}" if selected_fake_model else "Fake model filter: (none)"
             info = (
                 f'====================\n'
                 + f'  MultilingualDataset\n'
                 + f'{language_info}\n'
+                + f'{model_info}\n'
                 + f'====================\n'
                 + f'TRAIN: Real={train_real:,}, Fake={train_fake:,}, Total={len(self.train_set):,}\n'
                 + f'VAL:   Real={val_real:,}, Fake={val_fake:,}, Total={len(self.val_set):,}\n'

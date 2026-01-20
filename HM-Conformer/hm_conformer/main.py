@@ -47,6 +47,7 @@ def run(process_id, args, experiment_args):
             print("=" * 60)
             print(f"TEST mode:           {args.get('TEST')}")
             print(f"Selected language:   {args.get('selected_language')}")
+            print(f"Selected fake model: {args.get('selected_fake_model')}")
             print(f"labels_path:         {args.get('labels_path', args.get('path_train', '') + '/labels.json')}")
             print(f"dataset_root:        {args.get('dataset_root', args.get('path_train'))}")
             print(f"path_params:         {args.get('path_params')}")
@@ -79,6 +80,7 @@ def run(process_id, args, experiment_args):
             test_split=args.get('test_split', 0.1),
             random_seed=args['rand_seed'],
             selected_language=args.get('selected_language', None),
+            selected_fake_model=args.get('selected_fake_model', None),
             print_info=flag_parent
         )
 
@@ -198,9 +200,9 @@ def run(process_id, args, experiment_args):
                 if metrics.get('roc_auc') is not None:
                     print(f'ROC AUC:       {metrics["roc_auc"]:.4f}')
                 print(f'Threshold:     {metrics["threshold"]:.4f}')
-                print(f'\nConfusion Matrix:')
+                print('\nConfusion Matrix:')
                 print(metrics['confusion_matrix'])
-                print(f'\nClassification Report:')
+                print('\nClassification Report:')
                 print(metrics['classification_report'])
                 print('='*60)
                 # Backward-compatible print
@@ -232,7 +234,6 @@ def run(process_id, args, experiment_args):
             )
 
             best_eer_DF = 100
-            best_state_DF = framework.copy_state_dict()
             cnt_early_stop = 0
 
             # load model

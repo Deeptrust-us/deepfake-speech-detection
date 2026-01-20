@@ -45,6 +45,11 @@ def get_args():
         # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
         # Set to None to use all languages
         'selected_language': 'es',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+
+        # Fake-model filtering (optional):
+        # If set, keep ALL real samples, and keep ONLY fake samples where model_or_speaker == selected_fake_model.
+        # Can be combined with selected_language.
+        'selected_fake_model': None,
         
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
@@ -151,6 +156,7 @@ def get_args():
     # ------------------------------------------------------------
     # Supported env vars:
     # - HM_SELECTED_LANGUAGE: language code (e.g. "en") or "all"/"none" for no filter
+    # - HM_SELECTED_FAKE_MODEL: model_or_speaker name for fake samples (e.g. "Chatterbox Multilingual") or "all"/"none" for no filter
     # - HM_LOAD_EPOCH: int epoch to load (e.g. "60") or "none" to auto-pick latest
     # - HM_PATH_PARAMS: override checkpoint directory (models folder)
     # - HM_LABELS_PATH: override labels.json path
@@ -221,6 +227,14 @@ def get_args():
             args["selected_language"] = None
         else:
             args["selected_language"] = v
+
+    # Fake-model selection (applies ONLY to fake samples; real samples are always kept)
+    v = _env_str("HM_SELECTED_FAKE_MODEL")
+    if v is not None:
+        if v.lower() in ("all", "none", "null"):
+            args["selected_fake_model"] = None
+        else:
+            args["selected_fake_model"] = v
 
     # TEST mode and checkpoint epoch
     vb = _env_bool("HM_TEST")
