@@ -44,12 +44,12 @@ def get_args():
         
         # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
         # Set to None to use all languages
-        'selected_language': 'es',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+        'selected_language': None,  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
 
         # Fake-model filtering (optional):
         # If set, keep ALL real samples, and keep ONLY fake samples where model_or_speaker == selected_fake_model.
         # Can be combined with selected_language.
-        'selected_fake_model': None,
+        'selected_fake_model': 'OuteTTS',
         
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
