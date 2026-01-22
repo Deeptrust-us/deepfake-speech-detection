@@ -47,6 +47,8 @@ def run(process_id, args, experiment_args):
             print("=" * 60)
             print(f"TEST mode:           {args.get('TEST')}")
             print(f"Selected language:   {args.get('selected_language')}")
+            print(f"Selected fake model: {args.get('selected_fake_model')}")
+            print(f"Exclude fake models: {args.get('exclude_fake_models')}")
             print(f"labels_path:         {args.get('labels_path', args.get('path_train', '') + '/labels.json')}")
             print(f"dataset_root:        {args.get('dataset_root', args.get('path_train'))}")
             print(f"path_params:         {args.get('path_params')}")
@@ -79,8 +81,66 @@ def run(process_id, args, experiment_args):
             test_split=args.get('test_split', 0.1),
             random_seed=args['rand_seed'],
             selected_language=args.get('selected_language', None),
+            selected_fake_model=args.get('selected_fake_model', None),
+            exclude_fake_models=args.get('exclude_fake_models', None),
             print_info=flag_parent
         )
+
+        # Optional: balance training when data are imbalanced (real >> fake) WITHOUT discarding data.
+        #
+        # This uses a class-balanced sampler (oversampling the minority class) and keeps all
+        # samples available across training. Enable via env var: HM_BALANCE_TRAIN=1
+        def _env_bool(key: str, default: bool = False) -> bool:
+            v = os.environ.get(key, None)
+            if v is None:
+                return default
+            v = str(v).strip().lower()
+            if v in ("1", "true", "yes", "y", "t", "on"):
+                return True
+            if v in ("0", "false", "no", "n", "f", "off"):
+                return False
+            return default
+
+        balance_train = (not args.get('TEST', False)) and _env_bool("HM_BALANCE_TRAIN", default=False)
+
+        class DistributedWeightedSampler:
+            """
+            DDP-friendly weighted sampler (replacement sampling).
+
+            Each epoch:
+            - sample a global index list using torch.multinomial(weights, total_size, replacement=True)
+            - shard by rank (stride) so ranks get (mostly) disjoint subsets
+            """
+
+            def __init__(self, weights, num_replicas: int, rank: int, seed: int = 0, num_samples: int | None = None):
+                self.weights = torch.as_tensor(weights, dtype=torch.double)
+                if self.weights.ndim != 1:
+                    raise ValueError("weights must be 1D")
+                self.num_replicas = int(num_replicas)
+                self.rank = int(rank)
+                self.seed = int(seed)
+                self.epoch = 0
+
+                if num_samples is None:
+                    num_samples = len(self.weights)
+                self.num_samples = int(num_samples)
+
+                # Make total_size divisible by num_replicas (common DDP expectation)
+                self.num_samples_per_rank = int(np.ceil(self.num_samples / self.num_replicas))
+                self.total_size = self.num_samples_per_rank * self.num_replicas
+
+            def __iter__(self):
+                g = torch.Generator()
+                g.manual_seed(self.seed + self.epoch)
+                sampled = torch.multinomial(self.weights, self.total_size, replacement=True, generator=g).tolist()
+                indices = sampled[self.rank : self.total_size : self.num_replicas]
+                return iter(indices)
+
+            def __len__(self):
+                return self.num_samples_per_rank
+
+            def set_epoch(self, epoch: int):
+                self.epoch = int(epoch)
 
         # Always create test loader
         test_set_DF = data_processing.TestSet(
@@ -109,7 +169,37 @@ def run(process_id, args, experiment_args):
                 args['DA_list'],
                 args['DA_params']
             )
-            train_sampler = DistributedSampler(train_set, shuffle=True)
+            if balance_train:
+                train_items = list(multilingual_dataset.train_set)
+                n_real = sum(1 for it in train_items if getattr(it, "label", None) == 0)
+                n_fake = sum(1 for it in train_items if getattr(it, "label", None) == 1)
+                if n_real > 0 and n_fake > 0:
+                    # Inverse-frequency weights per sample (unnormalized is fine)
+                    w_real = 1.0 / float(n_real)
+                    w_fake = 1.0 / float(n_fake)
+                    weights = [w_fake if getattr(it, "label", None) == 1 else w_real for it in train_items]
+                    train_sampler = DistributedWeightedSampler(
+                        weights=weights,
+                        num_replicas=args['world_size'],
+                        rank=process_id,
+                        seed=args.get("rand_seed", 1),
+                        num_samples=len(train_items),
+                    )
+                    if flag_parent:
+                        print(
+                            f"[Balance] Enabled (HM_BALANCE_TRAIN=1): using DistributedWeightedSampler "
+                            f"(oversampling minority, keeping all data available). "
+                            f"Train items: Real={n_real:,} Fake={n_fake:,} Total={len(train_items):,}."
+                        )
+                else:
+                    train_sampler = DistributedSampler(train_set, shuffle=True)
+                    if flag_parent:
+                        print(
+                            f"[Balance] Requested but skipped (need both classes). "
+                            f"Train items: Real={n_real:,} Fake={n_fake:,}."
+                        )
+            else:
+                train_sampler = DistributedSampler(train_set, shuffle=True)
             train_loader = DataLoader(
                 train_set,
                 num_workers=args['num_workers'],
@@ -198,9 +288,9 @@ def run(process_id, args, experiment_args):
                 if metrics.get('roc_auc') is not None:
                     print(f'ROC AUC:       {metrics["roc_auc"]:.4f}')
                 print(f'Threshold:     {metrics["threshold"]:.4f}')
-                print(f'\nConfusion Matrix:')
+                print('\nConfusion Matrix:')
                 print(metrics['confusion_matrix'])
-                print(f'\nClassification Report:')
+                print('\nClassification Report:')
                 print(metrics['classification_report'])
                 print('='*60)
                 # Backward-compatible print
@@ -232,7 +322,6 @@ def run(process_id, args, experiment_args):
             )
 
             best_eer_DF = 100
-            best_state_DF = framework.copy_state_dict()
             cnt_early_stop = 0
 
             # load model

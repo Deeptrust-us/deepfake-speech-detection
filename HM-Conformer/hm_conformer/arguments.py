@@ -10,8 +10,8 @@ def get_args():
     """
     system_args = {
         # expeirment info
-        'project'       : 'Multilingual-Testing-ES',
-        'name'          : 'HM-Conformer_en',
+        'project'       : 'Multilingual-Domain-Training',
+        'name'          : 'HM-Conformer_OuteTTS',
         'tags'          : [],
         'description'   : '',
 
@@ -38,13 +38,19 @@ def get_args():
         'path_train'    : '/content/deepfake-speech-detection/HM-Conformer/dataset',
         'labels_path'   : '/content/deepfake-speech-detection/HM-Conformer/dataset/labels.json',
         'dataset_root'  : '/content/deepfake-speech-detection/HM-Conformer/dataset',
-        'train_split'   : 0,
-        'val_split'     : 0,
-        'test_split'    : 1,
+        'train_split'   : 0.8,
+        'val_split'     : 0.1,
+        'test_split'    : 0.1,
         
         # Language filtering: Set to a language code (e.g., 'en', 'it', 'es') to filter dataset
         # Set to None to use all languages
-        'selected_language': 'es',  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+        'selected_language': None,  # Filter for English only. Change to other language codes (e.g., 'it', 'es') or None for all languages
+
+        # Fake-model filtering (optional):
+        # If set, keep ALL real samples, and keep ONLY fake samples where model_or_speaker == selected_fake_model.
+        # Can be combined with selected_language.
+        # If None, use fake samples from all models.
+        'selected_fake_model': None,
         
         # Common augmentation paths
         'path_musan'    : '/content/deepfake-speech-detection/HM-Conformer/data/musan',
@@ -56,7 +62,7 @@ def get_args():
     }
 
     experiment_args = {
-        'TEST'              : True,  # Set to True for testing/inference only
+        'TEST'              : False,  # Set to True for testing/inference only
         # Which checkpoint epoch to load when TEST=True.
         # - Set to an int (e.g., 60) to force that epoch.
         # - Set to None to auto-pick the latest available epoch in path_params.
@@ -107,9 +113,9 @@ def get_args():
         
         # data augmentation
         # 1. when Reading file
-        'DA_codec_speed'    : False,         # codec: 'aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wav', 'wma', speed: 'slow', 'fast'
+        'DA_codec_speed'    : True,         # codec: 'aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav', 'wav', 'wma', speed: 'slow', 'fast'
         # 2. when __getitem__
-        'DA_p'              : 0,
+        'DA_p'              : 0.5,
         'DA_list'           : [], # 'ACN': add_coloured_noise, 'FQM': frq_masking, 'MUS': MUSAN, 'RIR': RIR
         'DA_params'         : {
             'MUS': {'path': system_args['path_musan']},
@@ -117,7 +123,7 @@ def get_args():
         },
         # 3. when processing WaveformAugmentation which is in Framework
         #'DA_wav_aug_list'   : ['ACN'], 
-        'DA_wav_aug_list'   : [],
+        'DA_wav_aug_list'   : ['ACN'],
             # 'ACN': add_colored_noise, 'GAN': gain, 'HPF': high pass filter, 'LPF': low pass filter
             # if use 'HPF' or 'LPF' training speed will be slow
         'DA_wav_aug_params' :  {
@@ -128,8 +134,8 @@ def get_args():
             'GAN': {'min_gain_in_db': -15.0, 'max_gain_in_db': 5.0, 'p': 0.5}
         },
         # 4. when extracting acoustic_feature
-        'DA_frq_p'          : 0,
-        'DA_frq_mask'       : False,
+        'DA_frq_p'          : 1,
+        'DA_frq_mask'       : True,
         'DA_frq_mask_max'   : 20,
         
         # learning rate
@@ -151,6 +157,9 @@ def get_args():
     # ------------------------------------------------------------
     # Supported env vars:
     # - HM_SELECTED_LANGUAGE: language code (e.g. "en") or "all"/"none" for no filter
+    # - HM_SELECTED_FAKE_MODEL: model_or_speaker name for fake samples (e.g. "Chatterbox Multilingual") or "all"/"none" for no filter
+    # - HM_EXCLUDE_FAKE_MODELS: comma-separated model_or_speaker names to EXCLUDE from fake samples
+    #   (real samples are always kept). Example: "OuteTTS,griffin_lim". Mutually exclusive with HM_SELECTED_FAKE_MODEL.
     # - HM_LOAD_EPOCH: int epoch to load (e.g. "60") or "none" to auto-pick latest
     # - HM_PATH_PARAMS: override checkpoint directory (models folder)
     # - HM_LABELS_PATH: override labels.json path
@@ -221,6 +230,21 @@ def get_args():
             args["selected_language"] = None
         else:
             args["selected_language"] = v
+
+    # Fake-model selection (applies ONLY to fake samples; real samples are always kept)
+    v = _env_str("HM_SELECTED_FAKE_MODEL")
+    if v is not None:
+        if v.lower() in ("all", "none", "null"):
+            args["selected_fake_model"] = None
+        else:
+            args["selected_fake_model"] = v
+
+    # Fake-model exclusion list (applies ONLY to fake samples; real samples are always kept)
+    v = _env_str("HM_EXCLUDE_FAKE_MODELS")
+    if v is not None:
+        parts = [p.strip() for p in str(v).split(",")]
+        parts = [p for p in parts if p]
+        args["exclude_fake_models"] = parts if parts else None
 
     # TEST mode and checkpoint epoch
     vb = _env_bool("HM_TEST")
